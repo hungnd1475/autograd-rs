@@ -159,13 +159,13 @@ impl Tape {
         }
     }
 
-    /// Create an input variable
+    /// Create a node representing an input variable
     pub fn var<'t>(&'t self, value: f64) -> Var {
         let index = self.push_nullary(value);
         Var { tape: self, index }
     }
 
-    /// Create a constant
+    /// Create a node representing a constant
     fn constant(&self, value: f64) -> usize {
         let mut vars = self.var_nodes.borrow_mut();
         let len = vars.len();
@@ -176,10 +176,12 @@ impl Tape {
         len
     }
 
+    /// Get the length of the tape
     pub fn len(&self) -> usize {
         self.grad_nodes.borrow().len()
     }
 
+    /// Push a node representing an input variable onto the graph
     fn push_nullary(&self, value: f64) -> usize {
         let mut vars = self.var_nodes.borrow_mut();
         let len = vars.len();
@@ -190,6 +192,7 @@ impl Tape {
         len
     }
 
+    /// Push a node representing the result of an unary operator onto the graph
     fn push_unary(&self, parent: usize, op: UnaryOp) -> usize {
         let mut vars = self.var_nodes.borrow_mut();
         let len = vars.len();
@@ -208,6 +211,7 @@ impl Tape {
         len
     }
 
+    /// Push a node representing the result of a binary operator onto the graph
     fn push_binary(&self, parent0: usize, parent1: usize, op: BinaryOp) -> usize {
         let mut vars = self.var_nodes.borrow_mut();
         let len = vars.len();
@@ -228,13 +232,18 @@ impl Tape {
 }
 
 #[derive(Clone, Copy)]
+/// Representing a real variable
 pub struct Var<'t> {
     tape: &'t Tape,
     index: usize,
 }
 
 impl<'t> Var<'t> {
+    /// Evaluate the variable and those that it is depends on
     pub fn eval(&self) -> f64 {
+        // The basic idea is that we traverse the expression graph in post order,
+        // then apply the operators on the traversal result from left to right
+
         let mut vars = self.tape.var_nodes.borrow_mut();
         let mut var_stack = Vec::new();
         let mut exp_stack = Vec::new();
@@ -320,6 +329,7 @@ impl<'t> Var<'t> {
         val_stack.pop().unwrap()
     }
 
+    /// Set the value of the variable
     pub fn set(&self, new_value: f64) {
         let mut vars = self.tape.var_nodes.borrow_mut();
         let current_var = &mut vars[self.index];
@@ -333,6 +343,7 @@ impl<'t> Var<'t> {
         }
     }
 
+    /// Compute the gradients of the variable with respects to all of its parameters
     pub fn grad(&self) -> Grad {
         let len = self.tape.len();
         let mut nodes = self.tape.grad_nodes.borrow_mut();

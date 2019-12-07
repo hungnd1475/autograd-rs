@@ -6,14 +6,9 @@ fn main() {
     let y = t.var(-2.4);
     let z = x.sin() + x * y - y.pow_const(2.0);
 
-    println!("{}", z.eval());
+    println!("z = {}", z.eval());
 
     let grad = z.grad();
-    println!("{}", grad.wrt(y));
-
-    x.set(2.0);
-    println!("{}", z.eval());
-
-    let grad = z.grad();
-    println!("{}", grad.wrt(x));
+    println!("dz/dx = {}", grad.wrt(x));
+    println!("dz/dy = {}", grad.wrt(y));
 }
