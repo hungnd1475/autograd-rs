@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::ops::{Add, Div, Mul, Sub};
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 /// Represents the supported unary operations
 enum UnaryOp {
     Sin,
@@ -32,7 +32,7 @@ impl UnaryOp {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 /// Represents the supported binary operations
 enum BinaryOp {
     Add,
@@ -77,22 +77,18 @@ impl BinaryOp {
     }
 
     /// Compute the full gradient of the operation with repsect to the given parameters
-    fn grad(&self, left: (&VarNode, f64), right: (&VarNode, f64)) -> [f64; 2] {
+    fn grad(&self, left: &VarNode, right: &VarNode) -> [f64; 2] {
         let lg = {
-            let (left_node, left_value) = left;
-            let (_, right_value) = right;
-            match *left_node {
+            match *left {
                 VarNode::Constant { .. } => 0.0,
-                _ => self.left_grad(left_value, right_value),
+                _ => self.left_grad(left.value(), right.value()),
             }
         };
 
         let rg = {
-            let (_, left_value) = left;
-            let (right_node, right_value) = right;
-            match *right_node {
+            match *right {
                 VarNode::Constant { .. } => 0.0,
-                _ => self.right_grad(left_value, right_value),
+                _ => self.right_grad(left.value(), right.value()),
             }
         };
 
@@ -100,14 +96,39 @@ impl BinaryOp {
     }
 }
 
+#[derive(Debug)]
 /// Presents the operand in the graph
 enum VarNode {
-    Nullary,
-    Unary { op: UnaryOp, dep: usize },
-    Binary { op: BinaryOp, deps: [usize; 2] },
-    Constant { value: f64 },
+    Nullary {
+        value: f64,
+    },
+    Unary {
+        value: Option<f64>,
+        op: UnaryOp,
+        dep: usize,
+    },
+    Binary {
+        value: Option<f64>,
+        op: BinaryOp,
+        deps: [usize; 2],
+    },
+    Constant {
+        value: f64,
+    },
 }
 
+impl VarNode {
+    fn value(&self) -> f64 {
+        match *self {
+            VarNode::Constant { value } => value,
+            VarNode::Nullary { value } => value,
+            VarNode::Unary { value, .. } => value.unwrap(),
+            VarNode::Binary { value, .. } => value.unwrap(),
+        }
+    }
+}
+
+#[derive(Debug)]
 /// Represents the adjoint in the graph
 enum GradNode {
     Nullary,
@@ -127,7 +148,6 @@ enum GradNode {
 pub struct Tape {
     grad_nodes: RefCell<Vec<GradNode>>,
     var_nodes: RefCell<Vec<VarNode>>,
-    var_values: RefCell<Vec<Option<f64>>>,
 }
 
 impl Tape {
@@ -136,23 +156,20 @@ impl Tape {
         Self {
             grad_nodes: RefCell::new(Vec::new()),
             var_nodes: RefCell::new(Vec::new()),
-            var_values: RefCell::new(Vec::new()),
         }
     }
 
     /// Create an input variable
-    pub fn var<'t>(&'t self) -> Var {
-        let index = self.push_nullary();
+    pub fn var<'t>(&'t self, value: f64) -> Var {
+        let index = self.push_nullary(value);
         Var { tape: self, index }
     }
 
     /// Create a constant
     fn constant(&self, value: f64) -> usize {
         let mut vars = self.var_nodes.borrow_mut();
-        let mut vals = self.var_values.borrow_mut();
         let len = vars.len();
         vars.push(VarNode::Constant { value });
-        vals.push(Some(value));
 
         let mut grads = self.grad_nodes.borrow_mut();
         grads.push(GradNode::Nullary);
@@ -163,12 +180,10 @@ impl Tape {
         self.grad_nodes.borrow().len()
     }
 
-    fn push_nullary(&self) -> usize {
+    fn push_nullary(&self, value: f64) -> usize {
         let mut vars = self.var_nodes.borrow_mut();
-        let mut vals = self.var_values.borrow_mut();
         let len = vars.len();
-        vars.push(VarNode::Nullary);
-        vals.push(None);
+        vars.push(VarNode::Nullary { value });
 
         let mut grads = self.grad_nodes.borrow_mut();
         grads.push(GradNode::Nullary);
@@ -177,10 +192,12 @@ impl Tape {
 
     fn push_unary(&self, parent: usize, op: UnaryOp) -> usize {
         let mut vars = self.var_nodes.borrow_mut();
-        let mut vals = self.var_values.borrow_mut();
         let len = vars.len();
-        vars.push(VarNode::Unary { dep: parent, op });
-        vals.push(None);
+        vars.push(VarNode::Unary {
+            value: None,
+            dep: parent,
+            op,
+        });
 
         let mut grads = self.grad_nodes.borrow_mut();
         grads.push(GradNode::Unary {
@@ -193,13 +210,12 @@ impl Tape {
 
     fn push_binary(&self, parent0: usize, parent1: usize, op: BinaryOp) -> usize {
         let mut vars = self.var_nodes.borrow_mut();
-        let mut vals = self.var_values.borrow_mut();
         let len = vars.len();
         vars.push(VarNode::Binary {
+            value: None,
             deps: [parent0, parent1],
             op,
         });
-        vals.push(None);
 
         let mut grads = self.grad_nodes.borrow_mut();
         grads.push(GradNode::Binary {
@@ -219,49 +235,100 @@ pub struct Var<'t> {
 
 impl<'t> Var<'t> {
     pub fn eval(&self) -> f64 {
-        let vars = self.tape.var_nodes.borrow();
-        let current_var = &vars[self.index];
-        let value = match current_var {
-            VarNode::Constant { value, .. } => *value,
-            VarNode::Nullary { .. } => {
-                let vals = self.tape.var_values.borrow();
-                vals[self.index].expect("Input variable is not initialized.")
-            }
-            VarNode::Unary { dep, op, .. } => {
-                let parent_var = Var {
-                    tape: self.tape,
-                    index: *dep,
-                };
-                op.eval(parent_var.eval())
-            }
-            VarNode::Binary { deps, op, .. } => {
-                let left_var = Var {
-                    tape: self.tape,
-                    index: deps[0],
-                };
-                let right_var = Var {
-                    tape: self.tape,
-                    index: deps[1],
-                };
-                op.eval(left_var.eval(), right_var.eval())
-            }
-        };
+        let mut vars = self.tape.var_nodes.borrow_mut();
+        let mut var_stack = Vec::new();
+        let mut exp_stack = Vec::new();
+        let mut val_stack = Vec::new();
+        let mut root = Some(self.index);
 
-        let mut vals = self.tape.var_values.borrow_mut();
-        vals[self.index] = Some(value);
-        value
+        loop {
+            while let Some(root_index) = root {
+                let root_node = &vars[root_index];
+                match *root_node {
+                    VarNode::Constant { .. } => {
+                        var_stack.push(root_index);
+                        root = None;
+                    }
+                    VarNode::Nullary { .. } => {
+                        var_stack.push(root_index);
+                        root = None;
+                    }
+                    VarNode::Unary { dep, .. } => {
+                        var_stack.push(root_index);
+                        root = Some(dep);
+                    }
+                    VarNode::Binary { deps, .. } => {
+                        var_stack.push(deps[1]);
+                        var_stack.push(root_index);
+                        root = Some(deps[0]);
+                    }
+                }
+            }
+
+            if let Some(root_index) = var_stack.pop() {
+                let root_node = &vars[root_index];
+                let mut right_index = None;
+                match *root_node {
+                    VarNode::Binary { deps, .. } => {
+                        if let Some(top_index) = var_stack.last() {
+                            if *top_index == deps[1] {
+                                right_index = Some(deps[1]);
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+                if let Some(right_index) = right_index {
+                    var_stack.pop();
+                    var_stack.push(root_index);
+                    root = Some(right_index);
+                } else {
+                    exp_stack.push(root_index);
+                }
+            }
+
+            if var_stack.is_empty() {
+                break;
+            }
+        }
+
+        for index in exp_stack {
+            let node = &mut vars[index];
+            match *node {
+                VarNode::Constant { value, .. } => val_stack.push(value),
+                VarNode::Nullary { value } => val_stack.push(value),
+                VarNode::Unary {
+                    op, ref mut value, ..
+                } => {
+                    let val = val_stack.pop().unwrap();
+                    let res = op.eval(val);
+                    val_stack.push(res);
+                    *value = Some(res);
+                }
+                VarNode::Binary {
+                    op, ref mut value, ..
+                } => {
+                    let right = val_stack.pop().unwrap();
+                    let left = val_stack.pop().unwrap();
+                    let res = op.eval(left, right);
+                    val_stack.push(res);
+                    *value = Some(res);
+                }
+            }
+        }
+
+        val_stack.pop().unwrap()
     }
 
-    pub fn set_value(&self, value: f64) {
-        let vars = self.tape.var_nodes.borrow();
-        let current_var = &vars[self.index];
+    pub fn set(&self, new_value: f64) {
+        let mut vars = self.tape.var_nodes.borrow_mut();
+        let current_var = &mut vars[self.index];
         match current_var {
             VarNode::Constant { .. } => panic!("Cannot set value for constant node."),
             VarNode::Binary { .. } => panic!("Cannot set value for computed node."),
             VarNode::Unary { .. } => panic!("Cannot set value for computed node."),
-            VarNode::Nullary { .. } => {
-                let mut vals = self.tape.var_values.borrow_mut();
-                vals[self.index] = Some(value);
+            VarNode::Nullary { ref mut value } => {
+                *value = new_value;
             }
         }
     }
@@ -270,7 +337,6 @@ impl<'t> Var<'t> {
         let len = self.tape.len();
         let mut nodes = self.tape.grad_nodes.borrow_mut();
         let vars = self.tape.var_nodes.borrow();
-        let vals = self.tape.var_values.borrow();
         let mut derivs = vec![0.0; len];
         derivs[self.index] = 1.0;
 
@@ -284,7 +350,7 @@ impl<'t> Var<'t> {
                     dep,
                     op,
                 } => {
-                    let grad_value = op.grad(vals[dep].unwrap());
+                    let grad_value = op.grad(vars[dep].value());
                     derivs[dep] += grad_value * deriv;
                     *grad = Some(grad_value);
                 }
@@ -293,10 +359,7 @@ impl<'t> Var<'t> {
                     deps,
                     op,
                 } => {
-                    let grad_values = op.grad(
-                        (&vars[deps[0]], vals[deps[0]].unwrap()),
-                        (&vars[deps[1]], vals[deps[1]].unwrap()),
-                    );
+                    let grad_values = op.grad(&vars[deps[0]], &vars[deps[1]]);
                     derivs[deps[0]] += grad_values[0] * deriv;
                     derivs[deps[1]] += grad_values[1] * deriv;
                     *grads = Some(grad_values);
