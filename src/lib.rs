@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::ops::{Add, Div, Mul, Neg, Sub};
 
 #[derive(Clone, Copy, Debug)]
@@ -118,7 +118,7 @@ enum VarNode {
     /// Represents a constant.
     Constant(f64),
     /// Represents an input variable.
-    Nullary(f64),
+    Nullary(Option<f64>),
     /// Represents the result of an unary operation.
     Unary {
         value: Option<f64>, // the lazily computed value
@@ -137,9 +137,13 @@ impl VarNode {
     fn value(&self) -> f64 {
         match *self {
             VarNode::Constant(value) => value,
-            VarNode::Nullary(value) => value,
-            VarNode::Unary { value, .. } => value.unwrap(),
-            VarNode::Binary { value, .. } => value.unwrap(),
+            VarNode::Nullary(value) => value.expect("Input variable has not been initialized."),
+            VarNode::Unary { value, .. } => {
+                value.expect("Intermediate variable has not been evaluated.")
+            }
+            VarNode::Binary { value, .. } => {
+                value.expect("Intermediate variable has not been evaluated.")
+            }
         }
     }
 }
@@ -167,6 +171,7 @@ enum GradNode {
 pub struct Tape {
     grad_nodes: RefCell<Vec<GradNode>>,
     var_nodes: RefCell<Vec<VarNode>>,
+    is_evaluated: Cell<bool>,
 }
 
 impl Tape {
@@ -175,12 +180,19 @@ impl Tape {
         Self {
             grad_nodes: RefCell::new(Vec::new()),
             var_nodes: RefCell::new(Vec::new()),
+            is_evaluated: Cell::new(false),
         }
     }
 
     /// Creates a node representing an input variable.
     pub fn var<'t>(&'t self, value: f64) -> Var {
-        let index = self.push_nullary(value);
+        let index = self.push_nullary(Some(value));
+        Var { tape: self, index }
+    }
+
+    /// Creates a node representing an unintialized input variable.
+    pub fn var_unintialized<'t>(&'t self) -> Var {
+        let index = self.push_nullary(None);
         Var { tape: self, index }
     }
 
@@ -201,7 +213,7 @@ impl Tape {
     }
 
     /// Pushes a node representing an input variable onto the graph.
-    fn push_nullary(&self, value: f64) -> usize {
+    fn push_nullary(&self, value: Option<f64>) -> usize {
         let mut vars = self.var_nodes.borrow_mut();
         let len = vars.len();
         vars.push(VarNode::Nullary(value));
@@ -269,7 +281,7 @@ impl<'t> Var<'t> {
         let mut val_stack = Vec::new(); // used to store the computed value
         let mut root = Some(self.index);
 
-        // constructing the traveral result
+        // constructing the traversal result
         loop {
             while let Some(root_index) = root {
                 let root_node = &vars[root_index];
@@ -326,7 +338,7 @@ impl<'t> Var<'t> {
             let node = &mut vars[*var_index];
             match *node {
                 VarNode::Constant(value) => val_stack.push(value),
-                VarNode::Nullary(value) => val_stack.push(value),
+                VarNode::Nullary(_) => val_stack.push(node.value()),
                 VarNode::Unary {
                     op, ref mut value, ..
                 } => {
@@ -348,25 +360,30 @@ impl<'t> Var<'t> {
         }
 
         // println!("{:?}", exp_stack);
+        self.tape.is_evaluated.set(true);
         val_stack.pop().unwrap()
     }
 
     /// Sets the value of the variable.
     pub fn set(&self, new_value: f64) {
+        // sets the value
         let mut vars = self.tape.var_nodes.borrow_mut();
         let current_var = &mut vars[self.index];
-        match current_var {
-            VarNode::Constant(_) => panic!("Cannot set value for constant node."),
-            VarNode::Binary { .. } => panic!("Cannot set value for computed node."),
-            VarNode::Unary { .. } => panic!("Cannot set value for computed node."),
+        match *current_var {
             VarNode::Nullary(ref mut value) => {
-                *value = new_value;
+                *value = Some(new_value);
             }
+            _ => panic!("Cannot set value for non-input variable."),
         }
+        self.tape.is_evaluated.set(false);
     }
 
     /// Computes the gradients of the variable with respects to all of its parameters.
     pub fn grad(&self) -> Grad {
+        if !self.tape.is_evaluated.get() {
+            panic!("Graph has not been evaluated");
+        }
+
         let len = self.tape.len();
         let mut grads = self.tape.grad_nodes.borrow_mut();
         let vars = self.tape.var_nodes.borrow();
@@ -461,6 +478,27 @@ impl<'t> Var<'t> {
         Var {
             tape: self.tape,
             index: self.tape.push_unary(self.index, UnaryOp::Exp),
+        }
+    }
+
+    /// Takes the log of this variable with a constant base.
+    pub fn log_const(&self, base: f64) -> Self {
+        let const_index = self.tape.constant(base);
+        Var {
+            tape: self.tape,
+            index: self
+                .tape
+                .push_binary(self.index, const_index, BinaryOp::Log),
+        }
+    }
+
+    /// Takes the log of this variable with a variable base.
+    pub fn log(&self, other: Var<'t>) -> Self {
+        Var {
+            tape: self.tape,
+            index: self
+                .tape
+                .push_binary(self.index, other.index, BinaryOp::Log),
         }
     }
 }
