@@ -15,7 +15,7 @@ enum UnaryOp {
 impl UnaryOp {
     /// Evaluates the operation with the given parameter.
     fn eval(&self, value: f64) -> f64 {
-        match *self {
+        match self {
             UnaryOp::Neg => -value,
             UnaryOp::Sin => value.sin(),
             UnaryOp::Cos => value.cos(),
@@ -27,11 +27,11 @@ impl UnaryOp {
 
     /// Computes the gradient of the operation with respect to the given parameter.
     fn grad(&self, var: &VarNode) -> f64 {
-        match *var {
+        match var {
             VarNode::Constant(_) => 0.0,
             _ => {
                 let value = var.value();
-                match *self {
+                match self {
                     UnaryOp::Neg => -1.0,
                     UnaryOp::Sin => value.cos(),
                     UnaryOp::Cos => -value.sin(),
@@ -58,7 +58,7 @@ enum BinaryOp {
 impl BinaryOp {
     /// Evaluates the operation with the given parameters.
     fn eval(&self, left: f64, right: f64) -> f64 {
-        match *self {
+        match self {
             BinaryOp::Add => left + right,
             BinaryOp::Sub => left - right,
             BinaryOp::Mul => left * right,
@@ -70,7 +70,7 @@ impl BinaryOp {
 
     /// Computes the partial gradient of the operation with repsect to the left parameter.
     fn left_grad(&self, left: f64, right: f64) -> f64 {
-        match *self {
+        match self {
             BinaryOp::Add => 1.0,
             BinaryOp::Sub => 1.0,
             BinaryOp::Mul => right,
@@ -82,7 +82,7 @@ impl BinaryOp {
 
     /// Computes the partial gradient of the operation with repsect to the right parameter.
     fn right_grad(&self, left: f64, right: f64) -> f64 {
-        match *self {
+        match self {
             BinaryOp::Add => 1.0,
             BinaryOp::Sub => -1.0,
             BinaryOp::Mul => left,
@@ -95,14 +95,14 @@ impl BinaryOp {
     /// Computes the full gradient of the operation with repsect to the given parameters.
     fn grad(&self, left: &VarNode, right: &VarNode) -> [f64; 2] {
         let lg = {
-            match *left {
+            match left {
                 VarNode::Constant(_) => 0.0,
                 _ => self.left_grad(left.value(), right.value()),
             }
         };
 
         let rg = {
-            match *right {
+            match right {
                 VarNode::Constant(_) => 0.0,
                 _ => self.right_grad(left.value(), right.value()),
             }
@@ -135,8 +135,8 @@ enum VarNode {
 
 impl VarNode {
     fn value(&self) -> f64 {
-        match *self {
-            VarNode::Constant(value) => value,
+        match self {
+            VarNode::Constant(value) => *value,
             VarNode::Nullary(value) => value.expect("Input variable has not been initialized."),
             VarNode::Unary { value, .. } => {
                 value.expect("Intermediate variable has not been evaluated.")
@@ -270,22 +270,18 @@ pub struct Var<'t> {
 }
 
 impl<'t> Var<'t> {
-    /// Evaluates the variable and those that it is depends on.
-    pub fn eval(&self) -> f64 {
-        // The basic idea is that we traverse the expression graph in postorder,
-        // then apply the operators on the traversal result from left to right
-
-        let mut vars = self.tape.var_nodes.borrow_mut();
-        let mut visit_stack = Vec::new(); // used to store the visited nodes
-        let mut var_stack = Vec::new(); // used to store the traversal result
-        let mut val_stack = Vec::new(); // used to store the computed value
+    /// Sorts the expression graph in togological order starting from this variable.
+    fn topological_sort(&self) -> Vec<usize> {
+        let vars = self.tape.var_nodes.borrow();
+        let mut visited = vec![false; vars.len()]; // flag visited nodes
+        let mut visit_stack = Vec::with_capacity(vars.len()); // used to store the visited nodes
+        let mut vars_stack = Vec::with_capacity(vars.len()); // used to store the traversal result
         let mut root = Some(self.index);
 
-        // constructing the traversal result
         loop {
             while let Some(root_index) = root {
                 let root_node = &vars[root_index];
-                match *root_node {
+                match root_node {
                     VarNode::Constant(_) => {
                         visit_stack.push(root_index);
                         root = None;
@@ -296,7 +292,7 @@ impl<'t> Var<'t> {
                     }
                     VarNode::Unary { dep, .. } => {
                         visit_stack.push(root_index);
-                        root = Some(dep);
+                        root = Some(*dep);
                     }
                     VarNode::Binary { deps, .. } => {
                         visit_stack.push(deps[1]);
@@ -309,7 +305,7 @@ impl<'t> Var<'t> {
             if let Some(root_index) = visit_stack.pop() {
                 let root_node = &vars[root_index];
                 let mut right_index = None;
-                match *root_node {
+                match root_node {
                     VarNode::Binary { deps, .. } => {
                         if let Some(top_index) = visit_stack.last() {
                             if *top_index == deps[1] {
@@ -324,7 +320,10 @@ impl<'t> Var<'t> {
                     visit_stack.push(root_index);
                     root = Some(right_index);
                 } else {
-                    var_stack.push(root_index);
+                    if !visited[root_index] {
+                        vars_stack.push(root_index);
+                        visited[root_index] = true;
+                    }
                 }
             }
 
@@ -333,35 +332,42 @@ impl<'t> Var<'t> {
             }
         }
 
+        vars_stack
+    }
+
+    /// Evaluates the variable and those that it depends on.
+    pub fn eval(&self) -> f64 {
+        let vars_order = self.topological_sort();
+        let mut vars = self.tape.var_nodes.borrow_mut();
+        let mut vals = vec![0.0; self.tape.len()]; // used to store the computed value
+
         // applying the operators on the traversal results from left to right
-        for var_index in &var_stack {
-            let node = &mut vars[*var_index];
-            match *node {
-                VarNode::Constant(value) => val_stack.push(value),
-                VarNode::Nullary(_) => val_stack.push(node.value()),
-                VarNode::Unary {
-                    op, ref mut value, ..
-                } => {
-                    let val = val_stack.pop().unwrap();
+        for &var_index in &vars_order {
+            let node = &mut vars[var_index];
+            match node {
+                VarNode::Constant(value) => vals[var_index] = *value,
+                VarNode::Nullary(_) => vals[var_index] = node.value(),
+                VarNode::Unary { value, dep, op } => {
+                    let val = vals[*dep];
                     let res = op.eval(val);
-                    val_stack.push(res);
+                    vals[var_index] = res;
                     *value = Some(res);
                 }
-                VarNode::Binary {
-                    op, ref mut value, ..
-                } => {
-                    let right = val_stack.pop().unwrap();
-                    let left = val_stack.pop().unwrap();
-                    let res = op.eval(left, right);
-                    val_stack.push(res);
+                VarNode::Binary { value, deps, op } => {
+                    let left_val = vals[deps[0]];
+                    let right_val = vals[deps[1]];
+                    let res = op.eval(left_val, right_val);
+                    vals[var_index] = res;
                     *value = Some(res);
                 }
             }
         }
 
-        // println!("{:?}", exp_stack);
+        println!("{:?}", vars_order);
+        println!("{:?}", vals);
+
         self.tape.is_evaluated.set(true);
-        val_stack.pop().unwrap()
+        vals[self.index]
     }
 
     /// Sets the value of the variable.
@@ -369,46 +375,39 @@ impl<'t> Var<'t> {
         // sets the value
         let mut vars = self.tape.var_nodes.borrow_mut();
         let current_var = &mut vars[self.index];
-        match *current_var {
-            VarNode::Nullary(ref mut value) => {
+        match current_var {
+            VarNode::Nullary(value) => {
                 *value = Some(new_value);
             }
             _ => panic!("Cannot set value for non-input variable."),
         }
+        // invalidate the tape
         self.tape.is_evaluated.set(false);
     }
 
     /// Computes the gradients of the variable with respects to all of its parameters.
     pub fn grad(&self) -> Grad {
         if !self.tape.is_evaluated.get() {
-            panic!("Graph has not been evaluated");
+            panic!("Graph has not been evaluated.");
         }
 
-        let len = self.tape.len();
-        let mut grads = self.tape.grad_nodes.borrow_mut();
+        let vars_order = self.topological_sort();
         let vars = self.tape.var_nodes.borrow();
-        let mut derivs = vec![0.0; len];
+        let mut grads = self.tape.grad_nodes.borrow_mut();
+        let mut derivs = vec![0.0; vars.len()];
         derivs[self.index] = 1.0;
 
-        for i in (0..len).rev() {
-            let node = &mut grads[i];
-            let deriv = derivs[i];
-            match *node {
+        for &var_index in vars_order.iter().rev() {
+            let node = &mut grads[var_index];
+            let deriv = derivs[var_index];
+            match node {
                 GradNode::Nullary => {}
-                GradNode::Unary {
-                    ref mut value,
-                    dep,
-                    op,
-                } => {
-                    let grad_value = op.grad(&vars[dep]);
-                    derivs[dep] += grad_value * deriv;
+                GradNode::Unary { value, dep, op } => {
+                    let grad_value = op.grad(&vars[*dep]);
+                    derivs[*dep] += grad_value * deriv;
                     *value = Some(grad_value);
                 }
-                GradNode::Binary {
-                    ref mut values,
-                    deps,
-                    op,
-                } => {
+                GradNode::Binary { values, deps, op } => {
                     let grad_values = op.grad(&vars[deps[0]], &vars[deps[1]]);
                     derivs[deps[0]] += grad_values[0] * deriv;
                     derivs[deps[1]] += grad_values[1] * deriv;

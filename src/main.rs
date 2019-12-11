@@ -6,6 +6,7 @@ fn main() {
     let y = t.var(-2.4);
     let z = x.sin() + x * y - y.pow_const(2.0);
 
+    // println!("tape size = {}", t.len());
     println!("z = {}", z.eval());
 
     let grad = z.grad();
