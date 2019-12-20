@@ -102,7 +102,7 @@ impl MatrixExt for Matrix {
 
 #[derive(Debug)]
 /// Presents the operand in the graph.
-enum VarNode {
+enum Node {
     /// Represents a constant.
     Constant(Matrix),
     /// Represents an input variable.
@@ -111,61 +111,43 @@ enum VarNode {
     Unary {
         shape: Shape,          // the shape
         value: Option<Matrix>, // the lazily computed value
-        op: UnaryOp,           // the operation resulting in the node
-        dep: usize,            // the operand for this node's operation
+        // grad: Option<Matrix>,  // the computed gradients
+        op: UnaryOp, // the operation resulting in the node
+        dep: usize,  // the operand for this node's operation
     },
     /// Represents the result of an binary operation.
     Binary {
         shape: Shape,          // the shape
         value: Option<Matrix>, // the lazily computed value
-        op: BinaryOp,          // the operation resulting in the node
-        deps: [usize; 2],      // the operands for this node's operation
+        // grads: Option<(Matrix, Matrix)>, // the computed gradients
+        op: BinaryOp,     // the operation resulting in the node
+        deps: [usize; 2], // the operands for this node's operation
     },
 }
 
-impl VarNode {
+impl Node {
     fn shape(&self) -> Shape {
         match self {
-            VarNode::Constant(value) => value.dim(),
-            VarNode::Nullary { shape, .. }
-            | VarNode::Unary { shape, .. }
-            | VarNode::Binary { shape, .. } => *shape,
+            Node::Constant(value) => value.dim(),
+            Node::Nullary { shape, .. }
+            | Node::Unary { shape, .. }
+            | Node::Binary { shape, .. } => *shape,
         }
     }
 
     fn value(&self) -> &Matrix {
         match self {
-            VarNode::Constant(value) => value,
-            VarNode::Nullary { value, .. }
-            | VarNode::Unary { value, .. }
-            | VarNode::Binary { value, .. } => value.as_ref().unwrap(),
+            Node::Constant(value) => value,
+            Node::Nullary { value, .. }
+            | Node::Unary { value, .. }
+            | Node::Binary { value, .. } => value.as_ref().unwrap(),
         }
     }
 }
 
-#[derive(Debug)]
-/// Represents the adjoint in the graph.
-enum GradNode {
-    /// Represents the gradident of an input.
-    Nullary,
-    /// Represents the gradient of an unary operation.
-    Unary {
-        value: Option<Matrix>, // the lazily computed gradient
-        dep: usize,            // the operands for this node's operation
-        op: UnaryOp,           // the operation resulting in this node
-    },
-    /// Represents the gradients of a binary operation.
-    Binary {
-        values: Option<[Matrix; 2]>, // the lazily computed gradients
-        deps: [usize; 2],            // the operands for this node's operation
-        op: BinaryOp,                // the operation resulting in this node
-    },
-}
-
 /// Represents a tape used to construct the adjoint graph.
 pub struct Tape {
-    grad_nodes: RefCell<Vec<GradNode>>,
-    var_nodes: RefCell<Vec<VarNode>>,
+    nodes: RefCell<Vec<Node>>,
     is_evaluated: Cell<bool>,
 }
 
@@ -173,8 +155,8 @@ impl Tape {
     /// Initializes a new tape.
     pub fn new() -> Self {
         Self {
-            grad_nodes: RefCell::new(Vec::new()),
-            var_nodes: RefCell::new(Vec::new()),
+            // grad_nodes: RefCell::new(Vec::new()),
+            nodes: RefCell::new(Vec::new()),
             is_evaluated: Cell::new(false),
         }
     }
@@ -220,43 +202,30 @@ impl Tape {
 
     /// Gets the length of the tape.
     pub fn len(&self) -> usize {
-        self.grad_nodes.borrow().len()
+        self.nodes.borrow().len()
     }
 
     fn push_constant(&self, value: Matrix) -> usize {
-        let mut vars = self.var_nodes.borrow_mut();
-        let len = vars.len();
-        vars.push(VarNode::Constant(value));
-
-        let mut grads = self.grad_nodes.borrow_mut();
-        grads.push(GradNode::Nullary);
+        let mut nodes = self.nodes.borrow_mut();
+        let len = nodes.len();
+        nodes.push(Node::Constant(value));
         len
     }
 
     /// Pushes a node representing an input variable onto the graph.
     fn push_nullary(&self, value: Option<Matrix>, shape: Shape) -> usize {
-        let mut vars = self.var_nodes.borrow_mut();
-        let len = vars.len();
-        vars.push(VarNode::Nullary { shape, value });
-
-        let mut grads = self.grad_nodes.borrow_mut();
-        grads.push(GradNode::Nullary);
+        let mut nodes = self.nodes.borrow_mut();
+        let len = nodes.len();
+        nodes.push(Node::Nullary { shape, value });
         len
     }
 
     /// Pushes a node representing the result of an unary operator onto the graph.
     fn push_unary(&self, shape: Shape, dep: usize, op: UnaryOp) -> usize {
-        let mut vars = self.var_nodes.borrow_mut();
-        let len = vars.len();
-        vars.push(VarNode::Unary {
+        let mut nodes = self.nodes.borrow_mut();
+        let len = nodes.len();
+        nodes.push(Node::Unary {
             shape,
-            value: None,
-            dep,
-            op,
-        });
-
-        let mut grads = self.grad_nodes.borrow_mut();
-        grads.push(GradNode::Unary {
             value: None,
             dep,
             op,
@@ -266,18 +235,11 @@ impl Tape {
 
     /// Pushes a node representing the result of a binary operator onto the graph.
     fn push_binary(&self, shape: Shape, dep0: usize, dep1: usize, op: BinaryOp) -> usize {
-        let mut vars = self.var_nodes.borrow_mut();
-        let len = vars.len();
-        vars.push(VarNode::Binary {
+        let mut nodes = self.nodes.borrow_mut();
+        let len = nodes.len();
+        nodes.push(Node::Binary {
             shape,
             value: None,
-            deps: [dep0, dep1],
-            op,
-        });
-
-        let mut grads = self.grad_nodes.borrow_mut();
-        grads.push(GradNode::Binary {
-            values: None,
             deps: [dep0, dep1],
             op,
         });

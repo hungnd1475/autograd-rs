@@ -1,6 +1,6 @@
 use super::{Grad, Var};
 use crate::op::{BinaryOp, UnaryOp};
-use crate::{GradNode, Matrix, MatrixExt, Tape, VarNode};
+use crate::{Matrix, MatrixExt, Node, Tape};
 use std::ops::{Add, Div, Mul, Neg, Sub};
 
 #[derive(Clone, Copy)]
@@ -27,9 +27,9 @@ impl<'t> ScalarVar<'t> {
     }
 
     pub fn set(&mut self, new_value: f64) {
-        let mut vars = self.tape.var_nodes.borrow_mut();
-        match &mut vars[self.index] {
-            VarNode::Nullary { ref mut value, .. } => {
+        let mut nodes = self.tape.nodes.borrow_mut();
+        match &mut nodes[self.index] {
+            Node::Nullary { ref mut value, .. } => {
                 *value = Some(Matrix::from_elem((1, 1), new_value));
             }
             _ => panic!("Cannot set value for non-input variable."),
@@ -96,29 +96,29 @@ impl<'t> ScalarVar<'t> {
 impl<'t> ScalarVar<'t> {
     /// Sorts the expression graph in togological order starting from this variable.
     fn topological_sort(&self) -> Vec<usize> {
-        let vars = self.tape.var_nodes.borrow();
-        let mut visited = vec![false; vars.len()]; // flag visited nodes
-        let mut visit_stack = Vec::with_capacity(vars.len()); // used to store the visited nodes
-        let mut vars_stack = Vec::with_capacity(vars.len()); // used to store the traversal result
+        let nodes = self.tape.nodes.borrow();
+        let mut visited = vec![false; nodes.len()]; // flag visited nodes
+        let mut visit_stack = Vec::with_capacity(nodes.len()); // used to store the visited nodes
+        let mut nodes_stack = Vec::with_capacity(nodes.len()); // used to store the traversal result
         let mut root = Some(self.index);
 
         loop {
             while let Some(root_index) = root {
-                let root_node = &vars[root_index];
+                let root_node = &nodes[root_index];
                 match root_node {
-                    VarNode::Constant(_) => {
+                    Node::Constant(_) => {
                         visit_stack.push(root_index);
                         root = None;
                     }
-                    VarNode::Nullary { .. } => {
+                    Node::Nullary { .. } => {
                         visit_stack.push(root_index);
                         root = None;
                     }
-                    VarNode::Unary { dep, .. } => {
+                    Node::Unary { dep, .. } => {
                         visit_stack.push(root_index);
                         root = Some(*dep);
                     }
-                    VarNode::Binary { deps, .. } => {
+                    Node::Binary { deps, .. } => {
                         visit_stack.push(deps[1]);
                         visit_stack.push(root_index);
                         root = Some(deps[0]);
@@ -127,10 +127,10 @@ impl<'t> ScalarVar<'t> {
             }
 
             if let Some(root_index) = visit_stack.pop() {
-                let root_node = &vars[root_index];
+                let root_node = &nodes[root_index];
                 let mut right_index = None;
                 match root_node {
-                    VarNode::Binary { deps, .. } => {
+                    Node::Binary { deps, .. } => {
                         if let Some(top_index) = visit_stack.last() {
                             if *top_index == deps[1] {
                                 right_index = Some(deps[1]);
@@ -145,7 +145,7 @@ impl<'t> ScalarVar<'t> {
                     root = Some(right_index);
                 } else {
                     if !visited[root_index] {
-                        vars_stack.push(root_index);
+                        nodes_stack.push(root_index);
                         visited[root_index] = true;
                     }
                 }
@@ -156,32 +156,32 @@ impl<'t> ScalarVar<'t> {
             }
         }
 
-        vars_stack
+        nodes_stack
     }
 
     /// Evaluates the variable and those that it depends on.
     pub fn eval(&self) -> Matrix {
-        let vars_order = self.topological_sort();
-        let mut vars = self.tape.var_nodes.borrow_mut();
+        let nodes_order = self.topological_sort();
+        let mut nodes = self.tape.nodes.borrow_mut();
 
         // applying the operators on the traversal results from left to right
-        for &var_index in &vars_order {
+        for &var_index in &nodes_order {
             let result = {
-                let node = &vars[var_index];
+                let node = &nodes[var_index];
                 match node {
-                    VarNode::Constant(_) | VarNode::Nullary { .. } => None,
-                    VarNode::Unary { dep, op, .. } => Some(op.eval(vars[*dep].value())),
-                    VarNode::Binary { deps, op, .. } => {
-                        Some(op.eval(vars[deps[0]].value(), vars[deps[1]].value()))
+                    Node::Constant(_) | Node::Nullary { .. } => None,
+                    Node::Unary { dep, op, .. } => Some(op.eval(nodes[*dep].value())),
+                    Node::Binary { deps, op, .. } => {
+                        Some(op.eval(nodes[deps[0]].value(), nodes[deps[1]].value()))
                     }
                 }
             };
             if let Some(result) = result {
-                let node = &mut vars[var_index];
+                let node = &mut nodes[var_index];
                 match node {
-                    VarNode::Constant(_) | VarNode::Nullary { .. } => {}
-                    VarNode::Unary { ref mut value, .. } => *value = Some(result),
-                    VarNode::Binary { ref mut value, .. } => *value = Some(result),
+                    Node::Constant(_) | Node::Nullary { .. } => {}
+                    Node::Unary { ref mut value, .. } => *value = Some(result),
+                    Node::Binary { ref mut value, .. } => *value = Some(result),
                 }
             }
         }
@@ -190,7 +190,7 @@ impl<'t> ScalarVar<'t> {
         // println!("{:?}", vals);
 
         self.tape.is_evaluated.set(true);
-        vars[self.index].value().clone()
+        nodes[self.index].value().clone()
     }
 
     /// Computes the gradients of the variable with respects to all of its parameters.
@@ -199,31 +199,28 @@ impl<'t> ScalarVar<'t> {
             panic!("Graph has not been evaluated.");
         }
 
-        let vars_order = self.topological_sort();
-        let vars = self.tape.var_nodes.borrow();
-        let mut grads = self.tape.grad_nodes.borrow_mut();
-        let mut derivs: Vec<Matrix> = vars.iter().map(|x| Matrix::zeros(x.shape())).collect();
+        let nodes_order = self.topological_sort();
+        let nodes = self.tape.nodes.borrow();
+        let mut derivs: Vec<Matrix> = nodes.iter().map(|x| Matrix::zeros(x.shape())).collect();
         derivs[self.index] = derivs[self.index].ones_like();
 
-        for &var_index in vars_order.iter().rev() {
-            let node = &mut grads[var_index];
+        for &var_index in nodes_order.iter().rev() {
+            let node = &nodes[var_index];
             match node {
-                GradNode::Nullary => {}
-                GradNode::Unary { value, dep, op } => {
-                    let grad = op.grad(&vars[*dep], vars[var_index].value(), &derivs[var_index]);
+                Node::Constant(_) | Node::Nullary { .. } => {}
+                Node::Unary { dep, op, .. } => {
+                    let grad = op.grad(&nodes[*dep], nodes[var_index].value(), &derivs[var_index]);
                     derivs[*dep] = &derivs[*dep] + &grad;
-                    *value = Some(grad);
                 }
-                GradNode::Binary { values, deps, op } => {
+                Node::Binary { deps, op, .. } => {
                     let grads = op.grad(
-                        &vars[deps[0]],
-                        &vars[deps[1]],
-                        vars[var_index].value(),
+                        &nodes[deps[0]],
+                        &nodes[deps[1]],
+                        nodes[var_index].value(),
                         &derivs[var_index],
                     );
                     derivs[deps[0]] = &derivs[deps[0]] + &grads[0];
                     derivs[deps[1]] = &derivs[deps[1]] + &grads[1];
-                    *values = Some(grads);
                 }
             }
         }

@@ -1,5 +1,5 @@
 use super::{Var, VectorVar};
-use crate::{BinaryOp, Matrix, Shape, Tape, VarNode};
+use crate::{BinaryOp, Matrix, Node, Shape, Tape};
 
 #[derive(Clone, Copy)]
 pub struct MatrixVar<'t> {
@@ -25,9 +25,9 @@ impl<'t> MatrixVar<'t> {
             "The given value cannot be coerced into a matrix of shape {:?}.",
             self.shape
         ));
-        let mut vars = self.tape.var_nodes.borrow_mut();
-        match &mut vars[self.index] {
-            VarNode::Nullary { ref mut value, .. } => *value = Some(new_value),
+        let mut nodes = self.tape.nodes.borrow_mut();
+        match &mut nodes[self.index] {
+            Node::Nullary { ref mut value, .. } => *value = Some(new_value),
             _ => panic!("Cannot set value for non-input variable."),
         }
         self.tape.is_evaluated.set(false);

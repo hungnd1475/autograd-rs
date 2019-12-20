@@ -1,6 +1,6 @@
 use super::{ScalarVar, Var};
 use crate::op::{BinaryOp, UnaryOp};
-use crate::{Matrix, Shape, ShapeExt, Tape, VarNode};
+use crate::{Matrix, Node, Shape, ShapeExt, Tape};
 use std::ops::{Add, Div, Mul, Neg, Sub};
 
 #[derive(Clone, Copy)]
@@ -84,9 +84,9 @@ impl<'t> VectorVar<'t> {
             "The given value cannot be coerced into a matrix of shape {:?}.",
             self.shape
         ));
-        let mut vars = self.tape.var_nodes.borrow_mut();
-        match &mut vars[self.index] {
-            VarNode::Nullary { ref mut value, .. } => *value = Some(new_value),
+        let mut nodes = self.tape.nodes.borrow_mut();
+        match &mut nodes[self.index] {
+            Node::Nullary { ref mut value, .. } => *value = Some(new_value),
             _ => panic!("Cannot set value for non-input variable."),
         }
         self.tape.is_evaluated.set(false);
