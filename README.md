@@ -1,6 +1,6 @@
 # Experimental tape-based automatic differentiation in Rust
 
-This is an experimental project attempting to implement tape-based automatic differentiation in Rust. The project is heavily inspired by this [article](https://rufflewind.com/2016-12-30/reverse-mode-automatic-differentiation). Only some basics operators are currently supported.
+This is an experimental project attempting to implement tape-based automatic differentiation in Rust. The project is heavily inspired by this [article](https://rufflewind.com/2016-12-30/reverse-mode-automatic-differentiation).
 
 Example, suppose we want to compute the gradients of the MSE loss of a 2-layer artificial neural network with sigmoid activation function with respect to the model parameters:
 
@@ -50,4 +50,22 @@ fn main() {
     println!("dl/dw2 =\n {}", grad.wrt(&w2));
     println!("dl/db2 =\n {}", grad.wrt(&b2));
 }
+```
+
+Output:
+
+```
+l = [[0.5872126984187227]]
+dl/dw1 =
+ [[0.0006128377165732395, 0.001225675433146479],
+ [0.01725296502992506, 0.03450593005985012],
+ [-0.00011304479623056158, -0.00022608959246112317]]
+dl/db1 =
+ [[0.0006128377165732395],
+ [0.01725296502992506],
+ [-0.00011304479623056158]]
+dl/dw2 =
+ [[-0.27385129545037956, -0.24708743904323366, -0.00022627614009696203]]
+dl/db2 =
+ [[-0.2744655076808846]]
 ```
