@@ -104,28 +104,41 @@ impl MatrixExt for Matrix {
 /// Presents the operand in the graph.
 enum VarNode {
     /// Represents a constant.
-    Constant(Shape),
+    Constant(Matrix),
     /// Represents an input variable.
-    Nullary(Shape),
+    Nullary { shape: Shape, value: Option<Matrix> },
     /// Represents the result of an unary operation.
     Unary {
-        shape: Shape, // the lazily computed value
-        op: UnaryOp,  // the operation resulting in the node
-        dep: usize,   // the operand for this node's operation
+        shape: Shape,          // the shape
+        value: Option<Matrix>, // the lazily computed value
+        op: UnaryOp,           // the operation resulting in the node
+        dep: usize,            // the operand for this node's operation
     },
     /// Represents the result of an binary operation.
     Binary {
-        shape: Shape,     // the lazily computed value
-        op: BinaryOp,     // the operation resulting in the node
-        deps: [usize; 2], // the operands for this node's operation
+        shape: Shape,          // the shape
+        value: Option<Matrix>, // the lazily computed value
+        op: BinaryOp,          // the operation resulting in the node
+        deps: [usize; 2],      // the operands for this node's operation
     },
 }
 
 impl VarNode {
     fn shape(&self) -> Shape {
         match self {
-            VarNode::Constant(shape) | VarNode::Nullary(shape) => *shape,
-            VarNode::Unary { shape, .. } | VarNode::Binary { shape, .. } => *shape,
+            VarNode::Constant(value) => value.dim(),
+            VarNode::Nullary { shape, .. }
+            | VarNode::Unary { shape, .. }
+            | VarNode::Binary { shape, .. } => *shape,
+        }
+    }
+
+    fn value(&self) -> &Matrix {
+        match self {
+            VarNode::Constant(value) => value,
+            VarNode::Nullary { value, .. }
+            | VarNode::Unary { value, .. }
+            | VarNode::Binary { value, .. } => value.as_ref().unwrap(),
         }
     }
 }
@@ -153,7 +166,6 @@ enum GradNode {
 pub struct Tape {
     grad_nodes: RefCell<Vec<GradNode>>,
     var_nodes: RefCell<Vec<VarNode>>,
-    var_values: RefCell<Vec<Option<Matrix>>>,
     is_evaluated: Cell<bool>,
 }
 
@@ -163,7 +175,6 @@ impl Tape {
         Self {
             grad_nodes: RefCell::new(Vec::new()),
             var_nodes: RefCell::new(Vec::new()),
-            var_values: RefCell::new(Vec::new()),
             is_evaluated: Cell::new(false),
         }
     }
@@ -215,10 +226,7 @@ impl Tape {
     fn push_constant(&self, value: Matrix) -> usize {
         let mut vars = self.var_nodes.borrow_mut();
         let len = vars.len();
-        vars.push(VarNode::Constant(value.dim()));
-
-        let mut vals = self.var_values.borrow_mut();
-        vals.push(Some(value));
+        vars.push(VarNode::Constant(value));
 
         let mut grads = self.grad_nodes.borrow_mut();
         grads.push(GradNode::Nullary);
@@ -229,10 +237,7 @@ impl Tape {
     fn push_nullary(&self, value: Option<Matrix>, shape: Shape) -> usize {
         let mut vars = self.var_nodes.borrow_mut();
         let len = vars.len();
-        vars.push(VarNode::Nullary(shape));
-
-        let mut vals = self.var_values.borrow_mut();
-        vals.push(value);
+        vars.push(VarNode::Nullary { shape, value });
 
         let mut grads = self.grad_nodes.borrow_mut();
         grads.push(GradNode::Nullary);
@@ -243,10 +248,12 @@ impl Tape {
     fn push_unary(&self, shape: Shape, dep: usize, op: UnaryOp) -> usize {
         let mut vars = self.var_nodes.borrow_mut();
         let len = vars.len();
-        vars.push(VarNode::Unary { shape, dep, op });
-
-        let mut vals = self.var_values.borrow_mut();
-        vals.push(None);
+        vars.push(VarNode::Unary {
+            shape,
+            value: None,
+            dep,
+            op,
+        });
 
         let mut grads = self.grad_nodes.borrow_mut();
         grads.push(GradNode::Unary {
@@ -263,12 +270,10 @@ impl Tape {
         let len = vars.len();
         vars.push(VarNode::Binary {
             shape,
+            value: None,
             deps: [dep0, dep1],
             op,
         });
-
-        let mut vals = self.var_values.borrow_mut();
-        vals.push(None);
 
         let mut grads = self.grad_nodes.borrow_mut();
         grads.push(GradNode::Binary {

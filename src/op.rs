@@ -36,10 +36,10 @@ impl UnaryOp {
     }
 
     /// Computes the gradient of the operation with respect to the given parameter.
-    pub(crate) fn grad(&self, var: (&VarNode, &Matrix), ans: &Matrix, g: &Matrix) -> Matrix {
-        let (node, val) = var;
-        match node {
-            VarNode::Constant(shape) => Matrix::zeros(*shape),
+    pub(crate) fn grad(&self, var: &VarNode, ans: &Matrix, g: &Matrix) -> Matrix {
+        let val = var.value();
+        match var {
+            VarNode::Constant(value) => value.zeros_like(),
             _ => match self {
                 UnaryOp::T => g.t().to_owned(),
                 UnaryOp::Neg => -g,
@@ -48,7 +48,7 @@ impl UnaryOp {
                 UnaryOp::Tan => 2.0 * g / ((2.0 * val).cos() + 1.0),
                 UnaryOp::Ln => g / val,
                 UnaryOp::Exp => ans * g,
-                UnaryOp::Sum => Matrix::ones(node.shape()),
+                UnaryOp::Sum => Matrix::ones(var.shape()),
             },
         }
     }
@@ -116,24 +116,24 @@ impl BinaryOp {
     /// Computes the full gradient of the operation with repsect to the given parameters.
     pub(crate) fn grad(
         &self,
-        left_var: (&VarNode, &Matrix),
-        right_var: (&VarNode, &Matrix),
+        left_var: &VarNode,
+        right_var: &VarNode,
         ans: &Matrix,
         g: &Matrix,
     ) -> [Matrix; 2] {
-        let (left_node, left_val) = left_var;
-        let (right_node, right_val) = right_var;
+        let left_val = left_var.value();
+        let right_val = right_var.value();
 
         let lg = {
-            match left_node {
-                VarNode::Constant(shape) => Matrix::zeros(*shape),
+            match left_var {
+                VarNode::Constant(value) => value.zeros_like(),
                 _ => self.left_grad(left_val, right_val, ans, g),
             }
         };
 
         let rg = {
-            match right_node {
-                VarNode::Constant(shape) => Matrix::zeros(*shape),
+            match right_var {
+                VarNode::Constant(value) => value.zeros_like(),
                 _ => self.right_grad(left_val, right_val, ans, g),
             }
         };

@@ -79,20 +79,16 @@ impl<'t> VectorVar<'t> {
     }
 
     /// Sets the value of the variable.
-    pub fn set(&mut self, value: Vec<f64>) {
-        let vars = self.tape.var_nodes.borrow();
-        let mut vals = self.tape.var_values.borrow_mut();
-        match &vars[self.index] {
-            VarNode::Nullary(_) => {
-                let value = Matrix::from_shape_vec(self.shape, value).expect(&format!(
-                    "The given value cannot be coerced into a vector of shape {:?}.",
-                    self.shape
-                ));
-                vals[self.index] = Some(value);
-            }
+    pub fn set(&mut self, new_value: Vec<f64>) {
+        let new_value = Matrix::from_shape_vec(self.shape, new_value).expect(&format!(
+            "The given value cannot be coerced into a matrix of shape {:?}.",
+            self.shape
+        ));
+        let mut vars = self.tape.var_nodes.borrow_mut();
+        match &mut vars[self.index] {
+            VarNode::Nullary { ref mut value, .. } => *value = Some(new_value),
             _ => panic!("Cannot set value for non-input variable."),
         }
-        // invalidate the tape
         self.tape.is_evaluated.set(false);
     }
 
