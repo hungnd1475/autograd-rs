@@ -20,7 +20,7 @@ fn main() {
     w.set(vec![-1.3, 2.7, -0.5, 2.1, 3.6, -5.5]);
     b.set(vec![2.0, -1.5]);
     y.set(vec![0.0, 1.0]);
-    println!("z = {}", l.eval());
+    println!("l = {}", l.eval());
 
     let grad = l.grad();
     println!("dl/dw =\n {}", grad.wrt(&w));
