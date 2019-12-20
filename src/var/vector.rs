@@ -170,6 +170,10 @@ impl<'t> VectorVar<'t> {
     pub fn l2norm(&self) -> ScalarVar<'t> {
         self.t().dot(*self).sqrt()
     }
+
+    pub fn sum(&self) -> ScalarVar<'t> {
+        self.unary_scalar(UnaryOp::Sum)
+    }
 }
 
 impl<'t> Add<VectorVar<'t>> for VectorVar<'t> {

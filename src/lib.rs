@@ -19,7 +19,7 @@ pub trait ShapeExt {
 impl ShapeExt for Shape {
     fn is_vector(&self) -> bool {
         let (nrow, ncol) = *self;
-        (nrow == 1) ^ (ncol == 1)
+        nrow == 1 || ncol == 1
     }
 
     fn is_row_vector(&self) -> bool {

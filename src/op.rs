@@ -10,6 +10,7 @@ pub(crate) enum UnaryOp {
     Tan,
     Ln,
     Exp,
+    Sum,
 }
 
 impl UnaryOp {
@@ -30,6 +31,7 @@ impl UnaryOp {
             UnaryOp::Tan => value.tan(),
             UnaryOp::Ln => value.ln(),
             UnaryOp::Exp => value.exp(),
+            UnaryOp::Sum => Matrix::from_elem((1, 1), value.sum()),
         }
     }
 
@@ -37,7 +39,7 @@ impl UnaryOp {
     pub(crate) fn grad(&self, var: (&VarNode, &Matrix), ans: &Matrix, g: &Matrix) -> Matrix {
         let (node, val) = var;
         match node {
-            VarNode::Constant(size) => Matrix::zeros(*size),
+            VarNode::Constant(shape) => Matrix::zeros(*shape),
             _ => match self {
                 UnaryOp::T => g.t().to_owned(),
                 UnaryOp::Neg => -g,
@@ -46,6 +48,7 @@ impl UnaryOp {
                 UnaryOp::Tan => 2.0 * g / ((2.0 * val).cos() + 1.0),
                 UnaryOp::Ln => g / val,
                 UnaryOp::Exp => ans * g,
+                UnaryOp::Sum => Matrix::ones(node.shape()),
             },
         }
     }
