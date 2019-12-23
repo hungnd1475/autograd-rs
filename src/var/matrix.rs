@@ -1,5 +1,5 @@
 use super::{Var, VectorVar};
-use crate::{BinaryOp, Matrix, Node, Shape, Tape};
+use crate::{BinaryOp, FloatMatrix, Node, Shape, Tape};
 
 #[derive(Clone, Copy)]
 pub struct MatrixVar<'t> {
@@ -12,6 +12,10 @@ impl<'t> Var for MatrixVar<'t> {
     fn index(&self) -> usize {
         self.index
     }
+
+    fn shape(&self) -> Shape {
+        self.shape
+    }
 }
 
 impl<'t> MatrixVar<'t> {
@@ -20,11 +24,14 @@ impl<'t> MatrixVar<'t> {
     }
 
     /// Sets the value of the variable.
-    pub fn set(&mut self, new_value: Vec<f64>) {
-        let new_value = Matrix::from_shape_vec(self.shape, new_value).expect(&format!(
-            "The given value cannot be coerced into a matrix of shape {:?}.",
+    pub fn set(&mut self, new_value: FloatMatrix) {
+        assert_eq!(
+            new_value.dim(),
+            self.shape,
+            "The shape of the new value does not match {:?} != {:?}.",
+            new_value.dim(),
             self.shape
-        ));
+        );
         let mut nodes = self.tape.nodes.borrow_mut();
         match &mut nodes[self.index] {
             Node::Nullary { ref mut value, .. } => *value = Some(new_value),

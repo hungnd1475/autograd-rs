@@ -1,6 +1,6 @@
-use crate::{Matrix, MatrixExt, Node, Shape};
+use crate::{FloatMatrix, MatrixExt, Node, Shape};
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 /// Represents the supported unary operations.
 pub(crate) enum UnaryOp {
     T,
@@ -17,12 +17,13 @@ impl UnaryOp {
     pub(crate) fn eval_shape(&self, input_shape: Shape) -> Shape {
         match (self, input_shape) {
             (UnaryOp::T, (nrow, ncol)) => (ncol, nrow),
+            (UnaryOp::Sum, _) => (1, 1),
             _ => input_shape,
         }
     }
 
     /// Evaluates the operation with the given parameter.
-    pub(crate) fn eval(&self, value: &Matrix) -> Matrix {
+    pub(crate) fn eval(&self, value: &FloatMatrix) -> FloatMatrix {
         match self {
             UnaryOp::T => value.t().to_owned(),
             UnaryOp::Neg => -value,
@@ -31,12 +32,12 @@ impl UnaryOp {
             UnaryOp::Tan => value.tan(),
             UnaryOp::Ln => value.ln(),
             UnaryOp::Exp => value.exp(),
-            UnaryOp::Sum => Matrix::from_elem((1, 1), value.sum()),
+            UnaryOp::Sum => FloatMatrix::from_elem((1, 1), value.sum()),
         }
     }
 
     /// Computes the gradient of the operation with respect to the given parameter.
-    pub(crate) fn grad(&self, node: &Node, ans: &Matrix, g: &Matrix) -> Matrix {
+    pub(crate) fn grad(&self, node: &Node, ans: &FloatMatrix, g: &FloatMatrix) -> FloatMatrix {
         let val = node.value();
         match node {
             Node::Constant(value) => value.zeros_like(),
@@ -48,13 +49,13 @@ impl UnaryOp {
                 UnaryOp::Tan => 2.0 * g / ((2.0 * val).cos() + 1.0),
                 UnaryOp::Ln => g / val,
                 UnaryOp::Exp => ans * g,
-                UnaryOp::Sum => Matrix::ones(node.shape()),
+                UnaryOp::Sum => FloatMatrix::ones(node.shape()),
             },
         }
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 /// Represents the supported binary operations.
 pub(crate) enum BinaryOp {
     Add,
@@ -75,7 +76,7 @@ impl BinaryOp {
     }
 
     /// Evaluates the operation with the given parameters.
-    pub(crate) fn eval(&self, left: &Matrix, right: &Matrix) -> Matrix {
+    pub(crate) fn eval(&self, left: &FloatMatrix, right: &FloatMatrix) -> FloatMatrix {
         match self {
             BinaryOp::Add => left + right,
             BinaryOp::Sub => left - right,
@@ -88,7 +89,13 @@ impl BinaryOp {
     }
 
     /// Computes the partial gradient of the operation with repsect to the left parameter.
-    fn left_grad(&self, left: &Matrix, right: &Matrix, ans: &Matrix, g: &Matrix) -> Matrix {
+    fn left_grad(
+        &self,
+        left: &FloatMatrix,
+        right: &FloatMatrix,
+        _ans: &FloatMatrix,
+        g: &FloatMatrix,
+    ) -> FloatMatrix {
         match self {
             BinaryOp::Add => g.clone(),
             BinaryOp::Sub => g.clone(),
@@ -101,7 +108,13 @@ impl BinaryOp {
     }
 
     /// Computes the partial gradient of the operation with repsect to the right parameter.
-    fn right_grad(&self, left: &Matrix, right: &Matrix, ans: &Matrix, g: &Matrix) -> Matrix {
+    fn right_grad(
+        &self,
+        left: &FloatMatrix,
+        right: &FloatMatrix,
+        _ans: &FloatMatrix,
+        g: &FloatMatrix,
+    ) -> FloatMatrix {
         match self {
             BinaryOp::Add => g.clone(),
             BinaryOp::Sub => -g,
@@ -118,9 +131,9 @@ impl BinaryOp {
         &self,
         left_node: &Node,
         right_node: &Node,
-        ans: &Matrix,
-        g: &Matrix,
-    ) -> [Matrix; 2] {
+        ans: &FloatMatrix,
+        g: &FloatMatrix,
+    ) -> [FloatMatrix; 2] {
         let left_val = left_node.value();
         let right_val = right_node.value();
 

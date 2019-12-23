@@ -1,12 +1,14 @@
 mod op;
 mod var;
 
-use ndarray::Array2;
+pub use ndarray::array;
+use ndarray::{Array1, Array2};
 use op::*;
 use std::cell::{Cell, RefCell};
 pub use var::*;
 
-type Matrix = Array2<f64>;
+type FloatVector = Array1<f64>;
+type FloatMatrix = Array2<f64>;
 type Shape = (usize, usize);
 
 pub trait ShapeExt {
@@ -39,61 +41,61 @@ impl ShapeExt for Shape {
 }
 
 pub trait MatrixExt {
-    fn zeros_like(&self) -> Matrix;
-    fn ones_like(&self) -> Matrix;
+    fn zeros_like(&self) -> FloatMatrix;
+    fn ones_like(&self) -> FloatMatrix;
 
-    fn sin(&self) -> Matrix;
-    fn cos(&self) -> Matrix;
-    fn tan(&self) -> Matrix;
-    fn ln(&self) -> Matrix;
-    fn exp(&self) -> Matrix;
+    fn sin(&self) -> FloatMatrix;
+    fn cos(&self) -> FloatMatrix;
+    fn tan(&self) -> FloatMatrix;
+    fn ln(&self) -> FloatMatrix;
+    fn exp(&self) -> FloatMatrix;
 
-    fn pow(&self, power: &Matrix) -> Matrix;
-    fn pow_scalar(&self, p: f64) -> Matrix;
-    fn log(&self, base: &Matrix) -> Matrix;
+    fn pow(&self, power: &FloatMatrix) -> FloatMatrix;
+    fn pow_scalar(&self, p: f64) -> FloatMatrix;
+    fn log(&self, base: &FloatMatrix) -> FloatMatrix;
 }
 
-impl MatrixExt for Matrix {
-    fn zeros_like(&self) -> Matrix {
-        Matrix::zeros(self.dim())
+impl MatrixExt for FloatMatrix {
+    fn zeros_like(&self) -> FloatMatrix {
+        FloatMatrix::zeros(self.dim())
     }
 
-    fn ones_like(&self) -> Matrix {
-        Matrix::ones(self.dim())
+    fn ones_like(&self) -> FloatMatrix {
+        FloatMatrix::ones(self.dim())
     }
 
-    fn sin(&self) -> Matrix {
+    fn sin(&self) -> FloatMatrix {
         self.mapv(|x| x.sin())
     }
 
-    fn cos(&self) -> Matrix {
+    fn cos(&self) -> FloatMatrix {
         self.mapv(|x| x.cos())
     }
 
-    fn tan(&self) -> Matrix {
+    fn tan(&self) -> FloatMatrix {
         self.mapv(|x| x.tan())
     }
 
-    fn ln(&self) -> Matrix {
+    fn ln(&self) -> FloatMatrix {
         self.mapv(|x| x.ln())
     }
 
-    fn exp(&self) -> Matrix {
+    fn exp(&self) -> FloatMatrix {
         self.mapv(|x| x.exp())
     }
 
-    fn pow(&self, power: &Matrix) -> Matrix {
+    fn pow(&self, power: &FloatMatrix) -> FloatMatrix {
         let mut result = self.clone();
         result.zip_mut_with(power, |x, y| *x = x.powf(*y));
         result
     }
 
-    fn pow_scalar(&self, p: f64) -> Matrix {
-        let power = Matrix::from_elem(self.dim(), p);
+    fn pow_scalar(&self, p: f64) -> FloatMatrix {
+        let power = FloatMatrix::from_elem(self.dim(), p);
         self.pow(&power)
     }
 
-    fn log(&self, base: &Matrix) -> Matrix {
+    fn log(&self, base: &FloatMatrix) -> FloatMatrix {
         let mut result = self.clone();
         result.zip_mut_with(base, |x, y| *x = x.log(*y));
         result
@@ -104,21 +106,24 @@ impl MatrixExt for Matrix {
 /// Presents the operand in the graph.
 enum Node {
     /// Represents a constant.
-    Constant(Matrix),
+    Constant(FloatMatrix),
     /// Represents an input variable.
-    Nullary { shape: Shape, value: Option<Matrix> },
+    Nullary {
+        shape: Shape,
+        value: Option<FloatMatrix>,
+    },
     /// Represents the result of an unary operation.
     Unary {
-        shape: Shape,          // the shape
-        value: Option<Matrix>, // the lazily computed value
+        shape: Shape,               // the shape
+        value: Option<FloatMatrix>, // the lazily computed value
         // grad: Option<Matrix>,  // the computed gradients
         op: UnaryOp, // the operation resulting in the node
         dep: usize,  // the operand for this node's operation
     },
     /// Represents the result of an binary operation.
     Binary {
-        shape: Shape,          // the shape
-        value: Option<Matrix>, // the lazily computed value
+        shape: Shape,               // the shape
+        value: Option<FloatMatrix>, // the lazily computed value
         // grads: Option<(Matrix, Matrix)>, // the computed gradients
         op: BinaryOp,     // the operation resulting in the node
         deps: [usize; 2], // the operands for this node's operation
@@ -135,7 +140,7 @@ impl Node {
         }
     }
 
-    fn value(&self) -> &Matrix {
+    fn value(&self) -> &FloatMatrix {
         match self {
             Node::Constant(value) => value,
             Node::Nullary { value, .. }
@@ -181,21 +186,20 @@ impl Tape {
     }
 
     fn scalar_const<'t>(&'t self, value: f64) -> ScalarVar<'t> {
-        let value = Matrix::from_elem((1, 1), value);
+        let value = FloatMatrix::from_elem((1, 1), value);
         let index = self.push_constant(value);
         ScalarVar::new(self, index)
     }
 
-    fn vector_const<'t>(&'t self, value: Vec<f64>) -> VectorVar<'t> {
+    fn vector_const<'t>(&'t self, value: FloatVector) -> VectorVar<'t> {
         let shape = (value.len(), 1);
-        let value = Matrix::from_shape_vec(shape, value).unwrap();
+        let value = value.into_shape(shape).unwrap();
         let index = self.push_constant(value);
         VectorVar::new(self, shape, index)
     }
 
-    fn matrix_const<'t>(&'t self, value: Vec<f64>, nrow: usize, ncol: usize) -> MatrixVar<'t> {
-        let shape = (nrow, ncol);
-        let value = Matrix::from_shape_vec(shape, value).unwrap();
+    fn matrix_const<'t>(&'t self, value: FloatMatrix) -> MatrixVar<'t> {
+        let shape = value.dim();
         let index = self.push_constant(value);
         MatrixVar::new(self, shape, index)
     }
@@ -205,7 +209,7 @@ impl Tape {
         self.nodes.borrow().len()
     }
 
-    fn push_constant(&self, value: Matrix) -> usize {
+    fn push_constant(&self, value: FloatMatrix) -> usize {
         let mut nodes = self.nodes.borrow_mut();
         let len = nodes.len();
         nodes.push(Node::Constant(value));
@@ -213,7 +217,7 @@ impl Tape {
     }
 
     /// Pushes a node representing an input variable onto the graph.
-    fn push_nullary(&self, value: Option<Matrix>, shape: Shape) -> usize {
+    fn push_nullary(&self, value: Option<FloatMatrix>, shape: Shape) -> usize {
         let mut nodes = self.nodes.borrow_mut();
         let len = nodes.len();
         nodes.push(Node::Nullary { shape, value });

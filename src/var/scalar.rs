@@ -1,6 +1,6 @@
 use super::{Grad, Var};
 use crate::op::{BinaryOp, UnaryOp};
-use crate::{Matrix, MatrixExt, Node, Tape};
+use crate::{FloatMatrix, MatrixExt, Node, Shape, Tape};
 use std::ops::{Add, Div, Mul, Neg, Sub};
 
 #[derive(Clone, Copy)]
@@ -30,7 +30,7 @@ impl<'t> ScalarVar<'t> {
         let mut nodes = self.tape.nodes.borrow_mut();
         match &mut nodes[self.index] {
             Node::Nullary { ref mut value, .. } => {
-                *value = Some(Matrix::from_elem((1, 1), new_value));
+                *value = Some(FloatMatrix::from_elem((1, 1), new_value));
             }
             _ => panic!("Cannot set value for non-input variable."),
         }
@@ -160,7 +160,7 @@ impl<'t> ScalarVar<'t> {
     }
 
     /// Evaluates the variable and those that it depends on.
-    pub fn eval(&self) -> Matrix {
+    pub fn eval(&self) -> FloatMatrix {
         let nodes_order = self.topological_sort();
         let mut nodes = self.tape.nodes.borrow_mut();
 
@@ -201,7 +201,10 @@ impl<'t> ScalarVar<'t> {
 
         let nodes_order = self.topological_sort();
         let nodes = self.tape.nodes.borrow();
-        let mut derivs: Vec<Matrix> = nodes.iter().map(|x| Matrix::zeros(x.shape())).collect();
+        let mut derivs: Vec<FloatMatrix> = nodes
+            .iter()
+            .map(|x| FloatMatrix::zeros(x.shape()))
+            .collect();
         derivs[self.index] = derivs[self.index].ones_like();
 
         for &var_index in nodes_order.iter().rev() {
@@ -232,6 +235,10 @@ impl<'t> ScalarVar<'t> {
 impl<'t> Var for ScalarVar<'t> {
     fn index(&self) -> usize {
         self.index
+    }
+
+    fn shape(&self) -> Shape {
+        (1, 1)
     }
 }
 

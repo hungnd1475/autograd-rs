@@ -1,6 +1,6 @@
 use super::{ScalarVar, Var};
 use crate::op::{BinaryOp, UnaryOp};
-use crate::{Matrix, Node, Shape, ShapeExt, Tape};
+use crate::{FloatVector, Node, Shape, ShapeExt, Tape};
 use std::ops::{Add, Div, Mul, Neg, Sub};
 
 #[derive(Clone, Copy)]
@@ -15,11 +15,24 @@ impl<'t> Var for VectorVar<'t> {
     fn index(&self) -> usize {
         self.index
     }
+
+    fn shape(&self) -> Shape {
+        self.shape
+    }
 }
 
 impl<'t> VectorVar<'t> {
     pub(crate) fn new(tape: &'t Tape, shape: Shape, index: usize) -> Self {
         Self { tape, shape, index }
+    }
+
+    fn length(&self) -> usize {
+        let (nrow, ncol) = self.shape;
+        if nrow == 1 {
+            ncol
+        } else {
+            nrow
+        }
     }
 
     fn unary_vector(&self, op: UnaryOp) -> VectorVar<'t> {
@@ -79,25 +92,14 @@ impl<'t> VectorVar<'t> {
     }
 
     /// Sets the value of the variable.
-    pub fn set(&mut self, new_value: Vec<f64>) {
-        let new_value = Matrix::from_shape_vec(self.shape, new_value).expect(&format!(
-            "The given value cannot be coerced into a matrix of shape {:?}.",
-            self.shape
-        ));
+    pub fn set(&mut self, new_value: FloatVector) {
+        let new_value = new_value.into_shape(self.shape).unwrap();
         let mut nodes = self.tape.nodes.borrow_mut();
         match &mut nodes[self.index] {
             Node::Nullary { ref mut value, .. } => *value = Some(new_value),
             _ => panic!("Cannot set value for non-input variable."),
         }
         self.tape.is_evaluated.set(false);
-    }
-
-    pub fn index(&self) -> usize {
-        self.index
-    }
-
-    pub fn shape(&self) -> Shape {
-        self.shape
     }
 }
 
@@ -123,7 +125,9 @@ impl<'t> VectorVar<'t> {
 
     /// Takes this variable raised to a given constant power.
     pub fn pow_const(&self, p: f64) -> Self {
-        let const_var = self.tape.vector_const(vec![p; self.shape.0 * self.shape.1]);
+        let const_var = self
+            .tape
+            .vector_const(FloatVector::from_elem(self.length(), p));
         self.binary_vector(BinaryOp::Pow, &const_var)
     }
 
@@ -146,7 +150,7 @@ impl<'t> VectorVar<'t> {
     pub fn log_const(&self, base: f64) -> Self {
         let const_var = self
             .tape
-            .vector_const(vec![base; self.shape.0 * self.shape.1]);
+            .vector_const(FloatVector::from_elem(self.length(), base));
         self.binary_vector(BinaryOp::Log, &const_var)
     }
 
@@ -186,7 +190,7 @@ impl<'t> Add<f64> for VectorVar<'t> {
     fn add(self, constant: f64) -> Self::Output {
         let const_var = self
             .tape
-            .vector_const(vec![constant; self.shape.0 * self.shape.1]);
+            .vector_const(FloatVector::from_elem(self.length(), constant));
         self.binary_vector(BinaryOp::Add, &const_var)
     }
 }
@@ -213,7 +217,7 @@ impl<'t> Mul<f64> for VectorVar<'t> {
     fn mul(self, constant: f64) -> Self::Output {
         let const_var = self
             .tape
-            .vector_const(vec![constant; self.shape.0 * self.shape.1]);
+            .vector_const(FloatVector::from_elem(self.length(), constant));
         self.binary_vector(BinaryOp::Mul, &const_var)
     }
 }
@@ -240,7 +244,7 @@ impl<'t> Sub<f64> for VectorVar<'t> {
     fn sub(self, constant: f64) -> Self::Output {
         let const_var = self
             .tape
-            .vector_const(vec![constant; self.shape.0 * self.shape.1]);
+            .vector_const(FloatVector::from_elem(self.length(), constant));
         self.binary_vector(BinaryOp::Sub, &const_var)
     }
 }
@@ -249,7 +253,9 @@ impl<'t> Sub<VectorVar<'t>> for f64 {
     type Output = VectorVar<'t>;
 
     fn sub(self, var: VectorVar<'t>) -> Self::Output {
-        let const_var = var.tape.vector_const(vec![self; var.shape.0 * var.shape.1]);
+        let const_var = var
+            .tape
+            .vector_const(FloatVector::from_elem(var.length(), self));
         const_var.binary_vector(BinaryOp::Sub, &var)
     }
 }
@@ -268,7 +274,7 @@ impl<'t> Div<f64> for VectorVar<'t> {
     fn div(self, constant: f64) -> Self::Output {
         let const_var = self
             .tape
-            .vector_const(vec![constant; self.shape.0 * self.shape.1]);
+            .vector_const(FloatVector::from_elem(self.length(), constant));
         self.binary_vector(BinaryOp::Div, &const_var)
     }
 }
@@ -277,7 +283,9 @@ impl<'t> Div<VectorVar<'t>> for f64 {
     type Output = VectorVar<'t>;
 
     fn div(self, var: VectorVar<'t>) -> Self::Output {
-        let const_var = var.tape.vector_const(vec![self; var.shape.0 * var.shape.1]);
+        let const_var = var
+            .tape
+            .vector_const(FloatVector::from_elem(var.length(), self));
         const_var.binary_vector(BinaryOp::Div, &var)
     }
 }
