@@ -281,10 +281,8 @@ impl ScalarVar {
 
         // applying the operators on the traversal results from left to right
         for &var_index in &nodes_order {
-            print!("{}: ", var_index);
             let result = {
                 let node = &nodes[var_index];
-                println!("{:?}", node);
                 match node {
                     Node::Constant(_) | Node::Nullary { .. } => None,
                     Node::Unary { dep, op, .. } => Some(op.eval(nodes[*dep].value())),
@@ -294,7 +292,6 @@ impl ScalarVar {
                 }
             };
             if let Some(result) = result {
-                println!(" -> {}", result);
                 let node = &mut nodes[var_index];
                 match node {
                     Node::Constant(_) | Node::Nullary { .. } => {}
