@@ -1,10 +1,10 @@
 use autograd_rs::{array, ScalarVar, Tape, VectorVar};
 
-fn sigmoid<'t>(x: VectorVar<'t>) -> VectorVar<'t> {
+fn sigmoid(x: &VectorVar) -> VectorVar {
     1.0 / (1.0 + (-x).exp())
 }
 
-fn loss<'t>(h: VectorVar<'t>, y: VectorVar<'t>) -> ScalarVar<'t> {
+fn loss(h: &VectorVar, y: &VectorVar) -> ScalarVar {
     (h - y).pow_const(2.0).sum()
 }
 
@@ -14,16 +14,16 @@ fn main() {
 
     let mut w1 = t.matrix_var(3, 2); // the weights of first layer
     let mut b1 = t.vector_var(3); // the bias of first layer
-    let z1 = w1.dot(x) + b1; // feed forward
-    let a1 = sigmoid(z1); // activation
+    let z1 = w1.dot(&x) + &b1; // feed forward
+    let a1 = sigmoid(&z1); // activation
 
     let mut w2 = t.matrix_var(2, 3); // the weights of second layer
     let mut b2 = t.vector_var(2); // the bias of second layer
-    let z2 = w2.dot(a1) + b2; // feed forward
+    let z2 = w2.dot(&a1) + &b2; // feed forward
 
-    let h = sigmoid(z2); // activation -> output
+    let h = sigmoid(&z2); // activation -> output
     let mut y = t.vector_var(2); // the target vector
-    let l = loss(h, y); // compute the loss
+    let l = loss(&h, &y); // compute the loss
 
     x.set(array![1.0, 2.0]);
     y.set(array![1.0, 0.0]);

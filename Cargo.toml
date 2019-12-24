@@ -8,4 +8,5 @@ edition = "2018"
 
 [dependencies]
 ndarray = "0.13.0"
+auto_ops = "0.1.0"
 

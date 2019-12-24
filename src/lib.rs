@@ -5,6 +5,7 @@ pub use ndarray::array;
 use ndarray::{Array1, Array2};
 use op::*;
 use std::cell::{Cell, RefCell};
+use std::rc::Rc;
 pub use var::*;
 
 type FloatVector = Array1<f64>;
@@ -40,7 +41,7 @@ impl ShapeExt for Shape {
     }
 }
 
-pub trait MatrixExt {
+pub trait LinearAlgebra {
     fn zeros_like(&self) -> FloatMatrix;
     fn ones_like(&self) -> FloatMatrix;
 
@@ -55,7 +56,7 @@ pub trait MatrixExt {
     fn log(&self, base: &FloatMatrix) -> FloatMatrix;
 }
 
-impl MatrixExt for FloatMatrix {
+impl LinearAlgebra for FloatMatrix {
     fn zeros_like(&self) -> FloatMatrix {
         FloatMatrix::zeros(self.dim())
     }
@@ -131,6 +132,7 @@ enum Node {
 }
 
 impl Node {
+    /// Returns the shape of this node.
     fn shape(&self) -> Shape {
         match self {
             Node::Constant(value) => value.dim(),
@@ -140,6 +142,7 @@ impl Node {
         }
     }
 
+    /// Returns the value of this node.
     fn value(&self) -> &FloatMatrix {
         match self {
             Node::Constant(value) => value,
@@ -150,6 +153,7 @@ impl Node {
     }
 }
 
+#[derive(Debug)]
 /// Represents a tape used to construct the adjoint graph.
 pub struct Tape {
     nodes: RefCell<Vec<Node>>,
@@ -158,50 +162,13 @@ pub struct Tape {
 
 impl Tape {
     /// Initializes a new tape.
-    pub fn new() -> Self {
-        Self {
-            // grad_nodes: RefCell::new(Vec::new()),
-            nodes: RefCell::new(Vec::new()),
-            is_evaluated: Cell::new(false),
+    pub fn new() -> TapeContainer {
+        TapeContainer {
+            tape: Rc::new(Tape {
+                nodes: RefCell::new(Vec::new()),
+                is_evaluated: Cell::new(false),
+            }),
         }
-    }
-
-    pub fn scalar_var<'t>(&'t self) -> ScalarVar<'t> {
-        let index = self.push_nullary(None, (1, 1));
-        ScalarVar::new(self, index)
-    }
-
-    /// Creates a node representing a vector input variable.
-    pub fn vector_var<'t>(&'t self, length: usize) -> VectorVar<'t> {
-        let shape = (length, 1);
-        let index = self.push_nullary(None, shape);
-        VectorVar::new(self, shape, index)
-    }
-
-    /// Creates a node representing a matrix input variable.
-    pub fn matrix_var<'t>(&'t self, nrow: usize, ncol: usize) -> MatrixVar<'t> {
-        let shape = (nrow, ncol);
-        let index = self.push_nullary(None, shape);
-        MatrixVar::new(self, shape, index)
-    }
-
-    fn scalar_const<'t>(&'t self, value: f64) -> ScalarVar<'t> {
-        let value = FloatMatrix::from_elem((1, 1), value);
-        let index = self.push_constant(value);
-        ScalarVar::new(self, index)
-    }
-
-    fn vector_const<'t>(&'t self, value: FloatVector) -> VectorVar<'t> {
-        let shape = (value.len(), 1);
-        let value = value.into_shape(shape).unwrap();
-        let index = self.push_constant(value);
-        VectorVar::new(self, shape, index)
-    }
-
-    fn matrix_const<'t>(&'t self, value: FloatMatrix) -> MatrixVar<'t> {
-        let shape = value.dim();
-        let index = self.push_constant(value);
-        MatrixVar::new(self, shape, index)
     }
 
     /// Gets the length of the tape.
@@ -209,6 +176,7 @@ impl Tape {
         self.nodes.borrow().len()
     }
 
+    /// Pushes a node representing a constant onto the graph.
     fn push_constant(&self, value: FloatMatrix) -> usize {
         let mut nodes = self.nodes.borrow_mut();
         let len = nodes.len();
@@ -248,5 +216,30 @@ impl Tape {
             op,
         });
         len
+    }
+}
+
+pub struct TapeContainer {
+    tape: Rc<Tape>,
+}
+
+impl TapeContainer {
+    /// Creates a new scalar free variable.
+    pub fn scalar_var(&self) -> ScalarVar {
+        let index = self.tape.push_nullary(None, (1, 1));
+        Var::scalar(&self.tape, index)
+    }
+
+    /// Creates a new vector free variable.
+    pub fn vector_var(&self, length: usize) -> VectorVar {
+        let shape = (length, 1);
+        let index = self.tape.push_nullary(None, shape);
+        Var::vector(&self.tape, index, shape)
+    }
+
+    /// Creates a new matrix free variable.
+    pub fn matrix_var(&self, nrow: usize, ncol: usize) -> MatrixVar {
+        let index = self.tape.push_nullary(None, (nrow, ncol));
+        Var::matrix(&self.tape, index, nrow, ncol)
     }
 }
