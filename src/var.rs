@@ -84,10 +84,6 @@ where
     pub(crate) kind: K,
 }
 
-pub type ScalarVar = Var<ScalarKind>;
-pub type VectorVar = Var<VectorKind>;
-pub type MatrixVar = Var<MatrixKind>;
-
 impl<K> Var<K>
 where
     K: VarKind,
@@ -100,6 +96,40 @@ where
         }
     }
 }
+
+fn unary<KIn, KOut>(input: &Var<KIn>, op: UnaryOp) -> Var<KOut>
+where
+    KIn: VarKind,
+    KOut: VarKind,
+{
+    let shape = op.eval_shape(input.kind.shape());
+    let index = input.tape.push_unary(shape, input.index, op);
+    Var::new(&input.tape, index, KOut::from(shape))
+}
+
+fn binary<KLeft, KRight, KOut>(left: &Var<KLeft>, right: &Var<KRight>, op: BinaryOp) -> Var<KOut>
+where
+    KLeft: VarKind,
+    KRight: VarKind,
+    KOut: VarKind,
+{
+    assert_eq!(&*left.tape as *const Tape, &*right.tape as *const Tape);
+    let shape = op.eval_shape(left.kind.shape(), right.kind.shape());
+    let index = left.tape.push_binary(shape, left.index, right.index, op);
+    Var::new(&left.tape, index, KOut::from(shape))
+}
+
+pub trait DotProduct<K>
+where
+    K: VarKind,
+{
+    type Result: VarKind;
+    fn dot(&self, other: &Var<K>) -> Var<Self::Result>;
+}
+
+pub type ScalarVar = Var<ScalarKind>;
+pub type VectorVar = Var<VectorKind>;
+pub type MatrixVar = Var<MatrixKind>;
 
 impl ScalarVar {
     pub(crate) fn scalar(tape: &Rc<Tape>, index: usize) -> Self {
@@ -116,20 +146,6 @@ impl ScalarVar {
         Var::scalar(tape, index)
     }
 
-    fn unary(&self, op: UnaryOp) -> Self {
-        let shape = op.eval_shape(self.kind.shape());
-        Var::scalar(&self.tape, self.tape.push_unary(shape, self.index, op))
-    }
-
-    fn binary(&self, op: BinaryOp, other: &Self) -> Self {
-        assert_eq!(&*self.tape as *const Tape, &*other.tape as *const Tape);
-        Var::scalar(
-            &self.tape,
-            self.tape
-                .push_binary(ScalarKind::shape(), self.index, other.index, op),
-        )
-    }
-
     /// Sets the value for this variable.
     pub fn set(&mut self, new_value: f64) {
         let mut nodes = self.tape.nodes.borrow_mut();
@@ -144,49 +160,49 @@ impl ScalarVar {
 
     /// Takes the sine of this variable.
     pub fn sin(&self) -> Self {
-        self.unary(UnaryOp::Sin)
+        unary(self, UnaryOp::Sin)
     }
 
     /// Takes the cosine of this variable.
     pub fn cos(&self) -> Self {
-        self.unary(UnaryOp::Cos)
+        unary(self, UnaryOp::Cos)
     }
 
     /// Takes the tangent of this variable.
     pub fn tan(&self) -> Self {
-        self.unary(UnaryOp::Tan)
+        unary(self, UnaryOp::Tan)
     }
 
     /// Takes this variable raised to a given constant power.
     pub fn pow_const(&self, p: f64) -> Self {
         let const_var = Self::constant(&self.tape, p);
-        self.binary(BinaryOp::Pow, &const_var)
+        binary(self, &const_var, BinaryOp::Pow)
     }
 
     /// Takes this variable raised to a given variable power.
     pub fn pow(&self, other: Self) -> Self {
-        self.binary(BinaryOp::Pow, &other)
+        binary(self, &other, BinaryOp::Pow)
     }
 
     /// Takes the natural logarithm of this variable.
     pub fn ln(&self) -> Self {
-        self.unary(UnaryOp::Ln)
+        unary(self, UnaryOp::Ln)
     }
 
     /// Takes the natural exponential of this variable.
     pub fn exp(&self) -> Self {
-        self.unary(UnaryOp::Exp)
+        unary(self, UnaryOp::Exp)
     }
 
     /// Takes the log of this variable with a constant base.
     pub fn log_const(&self, base: f64) -> Self {
         let const_var = Self::constant(&self.tape, base);
-        self.binary(BinaryOp::Log, &const_var)
+        binary(self, &const_var, BinaryOp::Log)
     }
 
     /// Takes the log of this variable with a variable base.
     pub fn log(&self, other: Self) -> Self {
-        self.binary(BinaryOp::Log, &other)
+        binary(self, &other, BinaryOp::Log)
     }
 
     /// Takes the squared root of this variable.
@@ -344,51 +360,51 @@ impl ScalarVar {
     }
 }
 
-impl_op_ex!(+|x: &ScalarVar, y: &ScalarVar| -> ScalarVar { x.binary(BinaryOp::Add, y) });
+impl_op_ex!(+|x: &ScalarVar, y: &ScalarVar| -> ScalarVar { binary(x, y, BinaryOp::Add) });
 impl_op_ex!(+|x: &ScalarVar, y: f64| -> ScalarVar { 
     let y = ScalarVar::constant(&x.tape, y);
-    x.binary(BinaryOp::Add, &y)
+    binary(x, &y, BinaryOp::Add)
 });
 impl_op_ex!(+|x: f64, y: &ScalarVar| -> ScalarVar {
     let x = ScalarVar::constant(&y.tape, x);
-    x.binary(BinaryOp::Add, y)
+    binary(&x, y, BinaryOp::Add)
 });
 
-impl_op_ex!(*|x: &ScalarVar, y: &ScalarVar| -> ScalarVar { x.binary(BinaryOp::Mul, y) });
+impl_op_ex!(*|x: &ScalarVar, y: &ScalarVar| -> ScalarVar { binary(x, y, BinaryOp::Mul) });
 impl_op_ex!(*|x: &ScalarVar, y: f64| -> ScalarVar {
     let y = ScalarVar::constant(&x.tape, y);
-    x.binary(BinaryOp::Mul, &y)
+    binary(x, &y, BinaryOp::Mul)
 });
 impl_op_ex!(*|x: f64, y: &ScalarVar| -> ScalarVar {
     let x = ScalarVar::constant(&y.tape, x);
-    x.binary(BinaryOp::Add, y)
+    binary(&x, y, BinaryOp::Add)
 });
 
-impl_op_ex!(-|x: &ScalarVar, y: &ScalarVar| -> ScalarVar { x.binary(BinaryOp::Sub, y) });
+impl_op_ex!(-|x: &ScalarVar, y: &ScalarVar| -> ScalarVar { binary(x, y, BinaryOp::Sub) });
 impl_op_ex!(-|x: &ScalarVar, y: f64| -> ScalarVar {
     let y = ScalarVar::constant(&x.tape, y);
-    x.binary(BinaryOp::Sub, &y)
+    binary(x, &y, BinaryOp::Sub)
 });
 impl_op_ex!(-|x: f64, y: &ScalarVar| -> ScalarVar {
     let x = ScalarVar::constant(&y.tape, x);
-    x.binary(BinaryOp::Sub, y)
+    binary(&x, y, BinaryOp::Sub)
 });
 
-impl_op_ex!(/|x: &ScalarVar, y: &ScalarVar| -> ScalarVar { x.binary(BinaryOp::Div, y) });
+impl_op_ex!(/|x: &ScalarVar, y: &ScalarVar| -> ScalarVar { binary(x, y, BinaryOp::Div) });
 impl_op_ex!(/|x: &ScalarVar, y: f64| -> ScalarVar {
     let y = ScalarVar::constant(&x.tape, y);
-    x.binary(BinaryOp::Div, &y)
+    binary(x, &y, BinaryOp::Div)
 });
 impl_op_ex!(/|x: f64, y: &ScalarVar| -> ScalarVar {
     let x = ScalarVar::constant(&y.tape, x);
-    x.binary(BinaryOp::Div, y)
+    binary(&x, y, BinaryOp::Div)
 });
 
 impl Neg for ScalarVar {
     type Output = ScalarVar;
 
     fn neg(self) -> Self::Output {
-        self.unary(UnaryOp::Neg)
+        unary(&self, UnaryOp::Neg)
     }
 }
 
@@ -396,7 +412,7 @@ impl Neg for &ScalarVar {
     type Output = ScalarVar;
 
     fn neg(self) -> Self::Output {
-        self.unary(UnaryOp::Neg)
+        unary(self, UnaryOp::Neg)
     }
 }
 
@@ -416,30 +432,6 @@ impl VectorVar {
         Var::vector(tape, index, shape)
     }
 
-    fn unary<K>(&self, op: UnaryOp) -> Var<K>
-    where
-        K: VarKind,
-    {
-        let shape = op.eval_shape(self.kind.shape());
-        Var::new(
-            &self.tape,
-            self.tape.push_unary(shape, self.index, op),
-            K::from(shape),
-        )
-    }
-
-    fn binary<K>(&self, op: BinaryOp, other: &Self) -> Var<K>
-    where
-        K: VarKind,
-    {
-        let shape = op.eval_shape(self.kind.shape(), other.kind.shape());
-        Var::new(
-            &self.tape,
-            self.tape.push_binary(shape, self.index, other.index, op),
-            K::from(shape),
-        )
-    }
-
     /// Sets the value of the variable.
     pub fn set(&mut self, new_value: FloatVector) {
         let new_value = new_value.into_shape(self.kind.shape()).unwrap();
@@ -451,60 +443,56 @@ impl VectorVar {
         self.tape.is_evaluated.set(false);
     }
 
+    /// Takes the tranpose of this variable.
     pub fn t(&self) -> Self {
-        self.unary::<VectorKind>(UnaryOp::T)
+        unary(self, UnaryOp::T)
     }
 
     /// Takes the sine of this variable.
     pub fn sin(&self) -> Self {
-        self.unary::<VectorKind>(UnaryOp::Sin)
+        unary(self, UnaryOp::Sin)
     }
 
     /// Takes the cosine of this variable.
     pub fn cos(&self) -> Self {
-        self.unary::<VectorKind>(UnaryOp::Cos)
+        unary(self, UnaryOp::Cos)
     }
 
     /// Takes the tangent of this variable.
     pub fn tan(&self) -> Self {
-        self.unary::<VectorKind>(UnaryOp::Tan)
+        unary(self, UnaryOp::Tan)
     }
 
     /// Takes this variable raised to a given constant power.
     pub fn pow_const(&self, p: f64) -> Self {
         let const_var = Self::constant(&self.tape, FloatVector::from_elem(self.kind.length, p));
-        self.binary::<VectorKind>(BinaryOp::Pow, &const_var)
+        binary(self, &const_var, BinaryOp::Pow)
     }
 
     /// Takes this variable raised to a given variable power.
     pub fn pow(&self, other: &Self) -> Self {
-        self.binary::<VectorKind>(BinaryOp::Pow, other)
+        binary(self, other, BinaryOp::Pow)
     }
 
     /// Takes the natural logarithm of this variable.
     pub fn ln(&self) -> Self {
-        self.unary::<VectorKind>(UnaryOp::Ln)
+        unary(self, UnaryOp::Ln)
     }
 
     /// Takes the natural exponential of this variable.
     pub fn exp(&self) -> Self {
-        self.unary::<VectorKind>(UnaryOp::Exp)
+        unary(self, UnaryOp::Exp)
     }
 
     /// Takes the log of this variable with a constant base.
     pub fn log_const(&self, base: f64) -> Self {
         let const_var = Self::constant(&self.tape, FloatVector::from_elem(self.kind.length, base));
-        self.binary::<VectorKind>(BinaryOp::Log, &const_var)
+        binary(self, &const_var, BinaryOp::Log)
     }
 
     /// Takes the log of this variable with a variable base.
     pub fn log(&self, other: &Self) -> Self {
-        self.binary::<VectorKind>(BinaryOp::Log, other)
-    }
-
-    /// Takes the dot product of this variable and the given variable.
-    pub fn dot(&self, other: &Self) -> ScalarVar {
-        self.binary::<ScalarKind>(BinaryOp::Dot, other)
+        binary(self, other, BinaryOp::Log)
     }
 
     /// Takes the squared root of this variable.
@@ -519,63 +507,79 @@ impl VectorVar {
 
     /// Takes the sum of this variable's elements.
     pub fn sum(&self) -> ScalarVar {
-        self.unary::<ScalarKind>(UnaryOp::Sum)
+        unary(self, UnaryOp::Sum)
     }
 }
 
-impl_op_ex!(+|x: &VectorVar, y: &VectorVar| -> VectorVar { x.binary(BinaryOp::Add, y) });
+impl DotProduct<VectorKind> for VectorVar {
+    type Result = ScalarKind;
+
+    fn dot(&self, other: &Var<VectorKind>) -> Var<Self::Result> {
+        binary(self, other, BinaryOp::Dot)
+    }
+}
+
+impl DotProduct<MatrixKind> for VectorVar {
+    type Result = MatrixKind;
+
+    fn dot(&self, other: &Var<MatrixKind>) -> Var<Self::Result> {
+        binary(self, other, BinaryOp::Dot)
+    }
+}
+
+impl_op_ex!(+|x: &VectorVar, y: &VectorVar| -> VectorVar { binary(x, y, BinaryOp::Add) });
 impl_op_ex!(+|x: &VectorVar, y: f64| -> VectorVar {
     let y = FloatVector::from_elem(x.kind.length, y);
     let y = VectorVar::constant(&x.tape, y);
-    x.binary(BinaryOp::Add, &y)
+    binary(x, &y, BinaryOp::Add)
 });
 impl_op_ex!(+|x: f64, y: &VectorVar| -> VectorVar {
     let x = FloatVector::from_elem(y.kind.length, x);
     let x = VectorVar::constant(&y.tape, x);
-    x.binary(BinaryOp::Add, y)
+    binary(&x, y, BinaryOp::Add)
 });
 
-impl_op_ex!(*|x: &VectorVar, y: &VectorVar| -> VectorVar { x.binary(BinaryOp::Mul, y) });
+impl_op_ex!(*|x: &VectorVar, y: &VectorVar| -> VectorVar { binary(x, y, BinaryOp::Mul) });
 impl_op_ex!(*|x: &VectorVar, y: f64| -> VectorVar {
     let y = FloatVector::from_elem(x.kind.length, y);
     let y = VectorVar::constant(&x.tape, y);
-    x.binary(BinaryOp::Mul, &y)
+    binary(x, &y, BinaryOp::Mul)
 });
 impl_op_ex!(*|x: f64, y: &VectorVar| -> VectorVar {
     let x = FloatVector::from_elem(y.kind.length, x);
     let x = VectorVar::constant(&y.tape, x);
-    x.binary(BinaryOp::Add, y)
+    binary(&x, y, BinaryOp::Add)
 });
 
-impl_op_ex!(-|x: &VectorVar, y: &VectorVar| -> VectorVar { x.binary(BinaryOp::Sub, y) });
+impl_op_ex!(-|x: &VectorVar, y: &VectorVar| -> VectorVar { binary(x, y, BinaryOp::Sub) });
 impl_op_ex!(-|x: &VectorVar, y: f64| -> VectorVar {
     let y = FloatVector::from_elem(x.kind.length, y);
     let y = VectorVar::constant(&x.tape, y);
-    x.binary(BinaryOp::Sub, &y)
+    binary(x, &y, BinaryOp::Sub)
 });
 impl_op_ex!(-|x: f64, y: &VectorVar| -> VectorVar {
     let x = FloatVector::from_elem(y.kind.length, x);
     let x = VectorVar::constant(&y.tape, x);
-    x.binary(BinaryOp::Sub, y)
+    binary(&x, y, BinaryOp::Sub)
 });
 
-impl_op_ex!(/|x: &VectorVar, y: &VectorVar| -> VectorVar { x.binary(BinaryOp::Div, y) });
+impl_op_ex!(/|x: &VectorVar, y: &VectorVar| -> VectorVar { binary(x, y, BinaryOp::Div) });
 impl_op_ex!(/|x: &VectorVar, y: f64| -> VectorVar {
     let y = FloatVector::from_elem(x.kind.length, y);
     let y = VectorVar::constant(&x.tape, y);
-    x.binary(BinaryOp::Div, &y)
+    binary(x, &y, BinaryOp::Div)
 });
 impl_op_ex!(/|x: f64, y: &VectorVar| -> VectorVar {
     let x = FloatVector::from_elem(y.kind.length, x);
     let x = VectorVar::constant(&y.tape, x);
-    x.binary(BinaryOp::Div, y)
+    binary(&x, y, BinaryOp::Div)
 });
 
 impl Neg for VectorVar {
     type Output = VectorVar;
 
     fn neg(self) -> Self::Output {
-        self.unary(UnaryOp::Neg)
+        unary(&self, UnaryOp::Neg)
     }
 }
 
@@ -583,7 +587,7 @@ impl Neg for &VectorVar {
     type Output = VectorVar;
 
     fn neg(self) -> Self::Output {
-        self.unary(UnaryOp::Neg)
+        unary(self, UnaryOp::Neg)
     }
 }
 
@@ -612,15 +616,20 @@ impl MatrixVar {
         }
         self.tape.is_evaluated.set(false);
     }
+}
 
-    /// Takes the dot product between this variable and a given vector.
-    pub fn dot(&self, other: &VectorVar) -> VectorVar {
-        let op = BinaryOp::Dot;
-        let shape = op.eval_shape(self.kind.shape(), other.kind.shape());
-        Var::vector(
-            &self.tape,
-            self.tape.push_binary(shape, self.index, other.index, op),
-            shape,
-        )
+impl DotProduct<VectorKind> for MatrixVar {
+    type Result = VectorKind;
+
+    fn dot(&self, other: &Var<VectorKind>) -> Var<Self::Result> {
+        binary(self, other, BinaryOp::Dot)
+    }
+}
+
+impl DotProduct<MatrixKind> for MatrixVar {
+    type Result = MatrixKind;
+
+    fn dot(&self, other: &Var<MatrixKind>) -> Var<Self::Result> {
+        binary(self, other, BinaryOp::Dot)
     }
 }

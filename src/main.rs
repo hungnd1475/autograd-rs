@@ -1,4 +1,4 @@
-use autograd_rs::{array, ScalarVar, Tape, VectorVar};
+use autograd_rs::{array, DotProduct, ScalarVar, Tape, VectorVar};
 
 fn sigmoid(x: &VectorVar) -> VectorVar {
     1.0 / (1.0 + (-x).exp())
