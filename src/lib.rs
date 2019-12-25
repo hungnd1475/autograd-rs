@@ -117,17 +117,15 @@ enum Node {
     Unary {
         shape: Shape,               // the shape
         value: Option<FloatMatrix>, // the lazily computed value
-        // grad: Option<Matrix>,  // the computed gradients
-        op: UnaryOp, // the operation resulting in the node
-        dep: usize,  // the operand for this node's operation
+        op: UnaryOp,                // the operation resulting in the node
+        dep: usize,                 // the operand for this node's operation
     },
     /// Represents the result of an binary operation.
     Binary {
         shape: Shape,               // the shape
         value: Option<FloatMatrix>, // the lazily computed value
-        // grads: Option<(Matrix, Matrix)>, // the computed gradients
-        op: BinaryOp,     // the operation resulting in the node
-        deps: [usize; 2], // the operands for this node's operation
+        op: BinaryOp,               // the operation resulting in the node
+        deps: [usize; 2],           // the operands for this node's operation
     },
 }
 
