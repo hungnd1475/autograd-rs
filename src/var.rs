@@ -340,14 +340,14 @@ impl ScalarVar {
             match node {
                 Node::Constant(_) | Node::Nullary { .. } => {}
                 Node::Unary { dep, op, .. } => {
-                    let grad = op.grad(&nodes[*dep], nodes[var_index].value(), &derivs[var_index]);
+                    let grad = op.grad(&nodes[*dep], node.value(), &derivs[var_index]);
                     derivs[*dep] = &derivs[*dep] + &grad;
                 }
                 Node::Binary { deps, op, .. } => {
                     let grads = op.grad(
                         &nodes[deps[0]],
                         &nodes[deps[1]],
-                        nodes[var_index].value(),
+                        node.value(),
                         &derivs[var_index],
                     );
                     derivs[deps[0]] = &derivs[deps[0]] + &grads[0];
