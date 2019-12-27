@@ -10,34 +10,40 @@ pub use var::*;
 
 type FloatVector = Array1<f64>;
 type FloatMatrix = Array2<f64>;
-type Shape = (usize, usize);
 
-pub trait ShapeExt {
-    fn is_vector(&self) -> bool;
-    fn is_row_vector(&self) -> bool;
-    fn is_col_vector(&self) -> bool;
-    fn is_scalar(&self) -> bool;
-}
+#[derive(Clone, Copy, Debug)]
+pub struct Shape(usize, usize);
 
-impl ShapeExt for Shape {
-    fn is_vector(&self) -> bool {
-        let (nrow, ncol) = *self;
+impl Shape {
+    pub fn dim(&self) -> (usize, usize) {
+        (self.0, self.1)
+    }
+
+    pub fn is_vector(&self) -> bool {
+        let Shape(nrow, ncol) = *self;
         nrow == 1 || ncol == 1
     }
 
-    fn is_row_vector(&self) -> bool {
-        let (nrow, ncol) = *self;
+    pub fn is_row_vector(&self) -> bool {
+        let Shape(nrow, ncol) = *self;
         nrow == 1 && ncol != 1
     }
 
-    fn is_col_vector(&self) -> bool {
-        let (nrow, ncol) = *self;
+    pub fn is_col_vector(&self) -> bool {
+        let Shape(nrow, ncol) = *self;
         nrow != 1 && ncol == 1
     }
 
-    fn is_scalar(&self) -> bool {
-        let (nrow, ncol) = *self;
+    pub fn is_scalar(&self) -> bool {
+        let Shape(nrow, ncol) = *self;
         nrow == 1 && ncol == 1
+    }
+}
+
+impl From<(usize, usize)> for Shape {
+    fn from(dim: (usize, usize)) -> Self {
+        let (nrow, ncol) = dim;
+        Shape(nrow, ncol)
     }
 }
 
@@ -133,7 +139,7 @@ impl Node {
     /// Returns the shape of this node.
     fn shape(&self) -> Shape {
         match self {
-            Node::Constant(value) => value.dim(),
+            Node::Constant(value) => value.dim().into(),
             Node::Nullary { shape, .. }
             | Node::Unary { shape, .. }
             | Node::Binary { shape, .. } => *shape,
@@ -224,20 +230,20 @@ pub struct TapeContainer {
 impl TapeContainer {
     /// Creates a new scalar free variable.
     pub fn scalar_var(&self) -> ScalarVar {
-        let index = self.tape.push_nullary(None, (1, 1));
+        let index = self.tape.push_nullary(None, Shape(1, 1));
         Var::scalar(&self.tape, index)
     }
 
     /// Creates a new vector free variable.
     pub fn vector_var(&self, length: usize) -> VectorVar {
-        let shape = (length, 1);
+        let shape = Shape(length, 1);
         let index = self.tape.push_nullary(None, shape);
         Var::vector(&self.tape, index, shape)
     }
 
     /// Creates a new matrix free variable.
     pub fn matrix_var(&self, nrow: usize, ncol: usize) -> MatrixVar {
-        let index = self.tape.push_nullary(None, (nrow, ncol));
+        let index = self.tape.push_nullary(None, Shape(nrow, ncol));
         Var::matrix(&self.tape, index, nrow, ncol)
     }
 }

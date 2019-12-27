@@ -1,4 +1,4 @@
-use crate::{FloatMatrix, LinearAlgebra, Node, Shape};
+use crate::{FloatMatrix, LinearAlgebra, Node, ScalarKind, Shape};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 /// Represents the supported unary operations.
@@ -16,8 +16,8 @@ pub(crate) enum UnaryOp {
 impl UnaryOp {
     pub(crate) fn eval_shape(&self, input_shape: Shape) -> Shape {
         match (self, input_shape) {
-            (UnaryOp::T, (nrow, ncol)) => (ncol, nrow),
-            (UnaryOp::Sum, _) => (1, 1),
+            (UnaryOp::T, Shape(nrow, ncol)) => Shape(ncol, nrow),
+            (UnaryOp::Sum, _) => ScalarKind::shape(),
             _ => input_shape,
         }
     }
@@ -49,7 +49,7 @@ impl UnaryOp {
                 UnaryOp::Tan => 2.0 * g / ((2.0 * val).cos() + 1.0),
                 UnaryOp::Ln => g / val,
                 UnaryOp::Exp => ans * g,
-                UnaryOp::Sum => FloatMatrix::ones(node.shape()),
+                UnaryOp::Sum => FloatMatrix::ones(node.shape().dim()),
             },
         }
     }
@@ -70,7 +70,7 @@ pub(crate) enum BinaryOp {
 impl BinaryOp {
     pub(crate) fn eval_shape(&self, left_shape: Shape, right_shape: Shape) -> Shape {
         match self {
-            BinaryOp::Dot => (left_shape.0, right_shape.1),
+            BinaryOp::Dot => Shape(left_shape.0, right_shape.1),
             _ => left_shape,
         }
     }
