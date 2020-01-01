@@ -1,4 +1,4 @@
-use crate::alge::FloatMatrix;
+use crate::alg::FloatMatrix;
 use crate::op::{BinaryOp, UnaryOp};
 use crate::var::{MatrixVar, ScalarVar, Shape, Var, VectorVar};
 use std::cell::{Cell, RefCell};

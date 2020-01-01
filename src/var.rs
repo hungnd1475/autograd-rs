@@ -1,10 +1,9 @@
-use crate::alge::{FloatMatrix, FloatVector};
+use crate::alg::{FloatMatrix, FloatVector};
 use crate::op::{BinaryOp, UnaryOp};
 use crate::tape::{Node, Tape};
-use auto_ops::impl_op_ex;
 use std::convert::TryFrom;
 use std::fmt;
-use std::ops::Neg;
+use std::ops::{Add, Div, Mul, Neg, Sub};
 use std::rc::Rc;
 
 #[derive(Clone, Copy, Debug)]
@@ -51,10 +50,11 @@ impl fmt::Debug for ShapeError {
     }
 }
 
-pub trait VarKind: TryFrom<Shape, Error = ShapeError> {
+pub trait VarKind: Copy + TryFrom<Shape, Error = ShapeError> {
     fn shape(&self) -> Shape;
 }
 
+#[derive(Copy, Clone)]
 pub struct ScalarKind;
 
 impl ScalarKind {
@@ -81,6 +81,7 @@ impl TryFrom<Shape> for ScalarKind {
     }
 }
 
+#[derive(Copy, Clone)]
 pub struct VectorKind {
     length: usize,
     is_row: bool,
@@ -111,6 +112,7 @@ impl TryFrom<Shape> for VectorKind {
     }
 }
 
+#[derive(Copy, Clone)]
 pub struct MatrixKind {
     nrow: usize,
     ncol: usize,
@@ -155,6 +157,12 @@ where
         }
     }
 
+    fn constant_like(&self, value: f64) -> Var<K> {
+        let value = FloatMatrix::from_elem(self.kind.shape().dim(), value);
+        let index = self.tape.push_constant(value);
+        Var::new(&self.tape, index, self.kind)
+    }
+
     /// Creates a new variable resulting from an unary operation applied on this variable.
     fn unary<KResult>(&self, op: UnaryOp) -> Var<KResult>
     where
@@ -175,6 +183,430 @@ where
         let shape = op.eval_shape(self.kind.shape(), other.kind.shape());
         let index = self.tape.push_binary(shape, self.index, other.index, op);
         Var::new(&self.tape, index, KResult::try_from(shape).unwrap())
+    }
+
+    /// Takes the sine of this variable.
+    pub fn sin(&self) -> Self {
+        self.unary(UnaryOp::Sin)
+    }
+
+    /// Takes the cosine of this variable.
+    pub fn cos(&self) -> Self {
+        self.unary(UnaryOp::Cos)
+    }
+
+    /// Takes the tangent of this variable.
+    pub fn tan(&self) -> Self {
+        self.unary(UnaryOp::Tan)
+    }
+
+    /// Takes this variable raised to a given constant power.
+    pub fn pow_const(&self, p: f64) -> Self {
+        self.binary(&self.constant_like(p), BinaryOp::Pow)
+    }
+
+    /// Takes this variable raised to a given variable power.
+    pub fn pow(&self, other: &Self) -> Self {
+        self.binary(other, BinaryOp::Pow)
+    }
+
+    /// Takes the natural logarithm of this variable.
+    pub fn ln(&self) -> Self {
+        self.unary(UnaryOp::Ln)
+    }
+
+    /// Takes the natural exponential of this variable.
+    pub fn exp(&self) -> Self {
+        self.unary(UnaryOp::Exp)
+    }
+
+    /// Takes the log of this variable with a constant base.
+    pub fn log_const(&self, base: f64) -> Self {
+        self.binary(&self.constant_like(base), BinaryOp::Log)
+    }
+
+    /// Takes the log of this variable with a variable base.
+    pub fn log(&self, other: &Self) -> Self {
+        self.binary(other, BinaryOp::Log)
+    }
+
+    /// Takes the squared root of this variable.
+    pub fn sqrt(&self) -> Self {
+        self.pow_const(0.5)
+    }
+}
+
+impl<K> Add<Var<K>> for Var<K>
+where
+    K: VarKind,
+{
+    type Output = Var<K>;
+
+    fn add(self, other: Var<K>) -> Self::Output {
+        self.binary(&other, BinaryOp::Add)
+    }
+}
+
+impl<K> Add<&Var<K>> for Var<K>
+where
+    K: VarKind,
+{
+    type Output = Var<K>;
+
+    fn add(self, other: &Var<K>) -> Self::Output {
+        self.binary(other, BinaryOp::Add)
+    }
+}
+
+impl<K> Add<Var<K>> for &Var<K>
+where
+    K: VarKind,
+{
+    type Output = Var<K>;
+
+    fn add(self, other: Var<K>) -> Self::Output {
+        self.binary(&other, BinaryOp::Add)
+    }
+}
+
+impl<K> Add<&Var<K>> for &Var<K>
+where
+    K: VarKind,
+{
+    type Output = Var<K>;
+
+    fn add(self, other: &Var<K>) -> Self::Output {
+        self.binary(&other, BinaryOp::Add)
+    }
+}
+
+impl<K> Add<f64> for Var<K>
+where
+    K: VarKind,
+{
+    type Output = Var<K>;
+
+    fn add(self, c: f64) -> Self::Output {
+        self.binary(&self.constant_like(c), BinaryOp::Add)
+    }
+}
+
+impl<K> Add<f64> for &Var<K>
+where
+    K: VarKind,
+{
+    type Output = Var<K>;
+
+    fn add(self, c: f64) -> Self::Output {
+        self.binary(&self.constant_like(c), BinaryOp::Add)
+    }
+}
+
+impl<K> Add<Var<K>> for f64
+where
+    K: VarKind,
+{
+    type Output = Var<K>;
+
+    fn add(self, other: Var<K>) -> Self::Output {
+        other.constant_like(self).binary(&other, BinaryOp::Add)
+    }
+}
+
+impl<K> Add<&Var<K>> for f64
+where
+    K: VarKind,
+{
+    type Output = Var<K>;
+
+    fn add(self, other: &Var<K>) -> Self::Output {
+        other.constant_like(self).binary(other, BinaryOp::Add)
+    }
+}
+
+impl<K> Sub<Var<K>> for Var<K>
+where
+    K: VarKind,
+{
+    type Output = Var<K>;
+
+    fn sub(self, other: Var<K>) -> Self::Output {
+        self.binary(&other, BinaryOp::Sub)
+    }
+}
+
+impl<K> Sub<&Var<K>> for Var<K>
+where
+    K: VarKind,
+{
+    type Output = Var<K>;
+
+    fn sub(self, other: &Var<K>) -> Self::Output {
+        self.binary(other, BinaryOp::Sub)
+    }
+}
+
+impl<K> Sub<Var<K>> for &Var<K>
+where
+    K: VarKind,
+{
+    type Output = Var<K>;
+
+    fn sub(self, other: Var<K>) -> Self::Output {
+        self.binary(&other, BinaryOp::Sub)
+    }
+}
+
+impl<K> Sub<&Var<K>> for &Var<K>
+where
+    K: VarKind,
+{
+    type Output = Var<K>;
+
+    fn sub(self, other: &Var<K>) -> Self::Output {
+        self.binary(&other, BinaryOp::Sub)
+    }
+}
+
+impl<K> Sub<f64> for Var<K>
+where
+    K: VarKind,
+{
+    type Output = Var<K>;
+
+    fn sub(self, c: f64) -> Self::Output {
+        self.binary(&self.constant_like(c), BinaryOp::Sub)
+    }
+}
+
+impl<K> Sub<f64> for &Var<K>
+where
+    K: VarKind,
+{
+    type Output = Var<K>;
+
+    fn sub(self, c: f64) -> Self::Output {
+        self.binary(&self.constant_like(c), BinaryOp::Sub)
+    }
+}
+
+impl<K> Sub<Var<K>> for f64
+where
+    K: VarKind,
+{
+    type Output = Var<K>;
+
+    fn sub(self, other: Var<K>) -> Self::Output {
+        other.constant_like(self).binary(&other, BinaryOp::Sub)
+    }
+}
+
+impl<K> Sub<&Var<K>> for f64
+where
+    K: VarKind,
+{
+    type Output = Var<K>;
+
+    fn sub(self, other: &Var<K>) -> Self::Output {
+        other.constant_like(self).binary(other, BinaryOp::Sub)
+    }
+}
+
+impl<K> Mul<Var<K>> for Var<K>
+where
+    K: VarKind,
+{
+    type Output = Var<K>;
+
+    fn mul(self, other: Var<K>) -> Self::Output {
+        self.binary(&other, BinaryOp::Mul)
+    }
+}
+
+impl<K> Mul<&Var<K>> for Var<K>
+where
+    K: VarKind,
+{
+    type Output = Var<K>;
+
+    fn mul(self, other: &Var<K>) -> Self::Output {
+        self.binary(other, BinaryOp::Mul)
+    }
+}
+
+impl<K> Mul<Var<K>> for &Var<K>
+where
+    K: VarKind,
+{
+    type Output = Var<K>;
+
+    fn mul(self, other: Var<K>) -> Self::Output {
+        self.binary(&other, BinaryOp::Mul)
+    }
+}
+
+impl<K> Mul<&Var<K>> for &Var<K>
+where
+    K: VarKind,
+{
+    type Output = Var<K>;
+
+    fn mul(self, other: &Var<K>) -> Self::Output {
+        self.binary(&other, BinaryOp::Mul)
+    }
+}
+
+impl<K> Mul<f64> for Var<K>
+where
+    K: VarKind,
+{
+    type Output = Var<K>;
+
+    fn mul(self, c: f64) -> Self::Output {
+        self.binary(&self.constant_like(c), BinaryOp::Mul)
+    }
+}
+
+impl<K> Mul<f64> for &Var<K>
+where
+    K: VarKind,
+{
+    type Output = Var<K>;
+
+    fn mul(self, c: f64) -> Self::Output {
+        self.binary(&self.constant_like(c), BinaryOp::Mul)
+    }
+}
+
+impl<K> Mul<Var<K>> for f64
+where
+    K: VarKind,
+{
+    type Output = Var<K>;
+
+    fn mul(self, other: Var<K>) -> Self::Output {
+        other.constant_like(self).binary(&other, BinaryOp::Mul)
+    }
+}
+
+impl<K> Mul<&Var<K>> for f64
+where
+    K: VarKind,
+{
+    type Output = Var<K>;
+
+    fn mul(self, other: &Var<K>) -> Self::Output {
+        other.constant_like(self).binary(other, BinaryOp::Mul)
+    }
+}
+
+impl<K> Div<Var<K>> for Var<K>
+where
+    K: VarKind,
+{
+    type Output = Var<K>;
+
+    fn div(self, other: Var<K>) -> Self::Output {
+        self.binary(&other, BinaryOp::Div)
+    }
+}
+
+impl<K> Div<&Var<K>> for Var<K>
+where
+    K: VarKind,
+{
+    type Output = Var<K>;
+
+    fn div(self, other: &Var<K>) -> Self::Output {
+        self.binary(other, BinaryOp::Div)
+    }
+}
+
+impl<K> Div<Var<K>> for &Var<K>
+where
+    K: VarKind,
+{
+    type Output = Var<K>;
+
+    fn div(self, other: Var<K>) -> Self::Output {
+        self.binary(&other, BinaryOp::Div)
+    }
+}
+
+impl<K> Div<&Var<K>> for &Var<K>
+where
+    K: VarKind,
+{
+    type Output = Var<K>;
+
+    fn div(self, other: &Var<K>) -> Self::Output {
+        self.binary(&other, BinaryOp::Div)
+    }
+}
+
+impl<K> Div<f64> for Var<K>
+where
+    K: VarKind,
+{
+    type Output = Var<K>;
+
+    fn div(self, c: f64) -> Self::Output {
+        self.binary(&self.constant_like(c), BinaryOp::Div)
+    }
+}
+
+impl<K> Div<f64> for &Var<K>
+where
+    K: VarKind,
+{
+    type Output = Var<K>;
+
+    fn div(self, c: f64) -> Self::Output {
+        self.binary(&self.constant_like(c), BinaryOp::Div)
+    }
+}
+
+impl<K> Div<Var<K>> for f64
+where
+    K: VarKind,
+{
+    type Output = Var<K>;
+
+    fn div(self, other: Var<K>) -> Self::Output {
+        other.constant_like(self).binary(&other, BinaryOp::Div)
+    }
+}
+
+impl<K> Div<&Var<K>> for f64
+where
+    K: VarKind,
+{
+    type Output = Var<K>;
+
+    fn div(self, other: &Var<K>) -> Self::Output {
+        other.constant_like(self).binary(other, BinaryOp::Div)
+    }
+}
+
+impl<K> Neg for Var<K>
+where
+    K: VarKind,
+{
+    type Output = Var<K>;
+
+    fn neg(self) -> Self::Output {
+        self.unary(UnaryOp::Neg)
+    }
+}
+
+impl<K> Neg for &Var<K>
+where
+    K: VarKind,
+{
+    type Output = Var<K>;
+
+    fn neg(self) -> Self::Output {
+        self.unary(UnaryOp::Neg)
     }
 }
 
@@ -201,13 +633,6 @@ impl ScalarVar {
         }
     }
 
-    /// Creates a new variable representing a constant scalar.
-    pub(crate) fn constant(tape: &Rc<Tape>, value: f64) -> Self {
-        let value = FloatMatrix::from_elem(ScalarKind::shape().dim(), value);
-        let index = tape.push_constant(value);
-        Var::scalar(tape, index)
-    }
-
     /// Sets the value for this variable.
     pub fn set(&mut self, new_value: f64) {
         let mut nodes = self.tape.nodes.borrow_mut();
@@ -218,58 +643,6 @@ impl ScalarVar {
             _ => panic!("Cannot set value for non-input variable."),
         }
         self.tape.is_evaluated.set(false);
-    }
-
-    /// Takes the sine of this variable.
-    pub fn sin(&self) -> Self {
-        self.unary(UnaryOp::Sin)
-    }
-
-    /// Takes the cosine of this variable.
-    pub fn cos(&self) -> Self {
-        self.unary(UnaryOp::Cos)
-    }
-
-    /// Takes the tangent of this variable.
-    pub fn tan(&self) -> Self {
-        self.unary(UnaryOp::Tan)
-    }
-
-    /// Takes this variable raised to a given constant power.
-    pub fn pow_const(&self, p: f64) -> Self {
-        let const_var = Self::constant(&self.tape, p);
-        self.binary(&const_var, BinaryOp::Pow)
-    }
-
-    /// Takes this variable raised to a given variable power.
-    pub fn pow(&self, other: &Self) -> Self {
-        self.binary(other, BinaryOp::Pow)
-    }
-
-    /// Takes the natural logarithm of this variable.
-    pub fn ln(&self) -> Self {
-        self.unary(UnaryOp::Ln)
-    }
-
-    /// Takes the natural exponential of this variable.
-    pub fn exp(&self) -> Self {
-        self.unary(UnaryOp::Exp)
-    }
-
-    /// Takes the log of this variable with a constant base.
-    pub fn log_const(&self, base: f64) -> Self {
-        let const_var = Self::constant(&self.tape, base);
-        self.binary(&const_var, BinaryOp::Log)
-    }
-
-    /// Takes the log of this variable with a variable base.
-    pub fn log(&self, other: &Self) -> Self {
-        self.binary(other, BinaryOp::Log)
-    }
-
-    /// Takes the squared root of this variable.
-    pub fn sqrt(&self) -> Self {
-        self.pow_const(0.5)
     }
 }
 
@@ -422,62 +795,6 @@ impl ScalarVar {
     }
 }
 
-impl_op_ex!(+|x: &ScalarVar, y: &ScalarVar| -> ScalarVar { x.binary(y, BinaryOp::Add) });
-impl_op_ex!(+|x: &ScalarVar, y: f64| -> ScalarVar { 
-    let y = ScalarVar::constant(&x.tape, y);
-    x.binary(&y, BinaryOp::Add)
-});
-impl_op_ex!(+|x: f64, y: &ScalarVar| -> ScalarVar {
-    let x = ScalarVar::constant(&y.tape, x);
-    x.binary(y, BinaryOp::Add)
-});
-
-impl_op_ex!(*|x: &ScalarVar, y: &ScalarVar| -> ScalarVar { x.binary(y, BinaryOp::Mul) });
-impl_op_ex!(*|x: &ScalarVar, y: f64| -> ScalarVar {
-    let y = ScalarVar::constant(&x.tape, y);
-    x.binary(&y, BinaryOp::Mul)
-});
-impl_op_ex!(*|x: f64, y: &ScalarVar| -> ScalarVar {
-    let x = ScalarVar::constant(&y.tape, x);
-    x.binary(y, BinaryOp::Add)
-});
-
-impl_op_ex!(-|x: &ScalarVar, y: &ScalarVar| -> ScalarVar { x.binary(y, BinaryOp::Sub) });
-impl_op_ex!(-|x: &ScalarVar, y: f64| -> ScalarVar {
-    let y = ScalarVar::constant(&x.tape, y);
-    x.binary(&y, BinaryOp::Sub)
-});
-impl_op_ex!(-|x: f64, y: &ScalarVar| -> ScalarVar {
-    let x = ScalarVar::constant(&y.tape, x);
-    x.binary(y, BinaryOp::Sub)
-});
-
-impl_op_ex!(/|x: &ScalarVar, y: &ScalarVar| -> ScalarVar { x.binary(y, BinaryOp::Div) });
-impl_op_ex!(/|x: &ScalarVar, y: f64| -> ScalarVar {
-    let y = ScalarVar::constant(&x.tape, y);
-    x.binary(&y, BinaryOp::Div)
-});
-impl_op_ex!(/|x: f64, y: &ScalarVar| -> ScalarVar {
-    let x = ScalarVar::constant(&y.tape, x);
-    x.binary(y, BinaryOp::Div)
-});
-
-impl Neg for ScalarVar {
-    type Output = ScalarVar;
-
-    fn neg(self) -> Self::Output {
-        self.unary(UnaryOp::Neg)
-    }
-}
-
-impl Neg for &ScalarVar {
-    type Output = ScalarVar;
-
-    fn neg(self) -> Self::Output {
-        self.unary(UnaryOp::Neg)
-    }
-}
-
 impl VectorVar {
     /// Initializes a new vector variable.
     pub(crate) fn vector(tape: &Rc<Tape>, index: usize, shape: Shape) -> Self {
@@ -486,14 +803,6 @@ impl VectorVar {
             index,
             kind: VectorKind::try_from(shape).unwrap(),
         }
-    }
-
-    /// Creates a new variable representing a constant vector.
-    pub(crate) fn constant(tape: &Rc<Tape>, value: FloatVector) -> Self {
-        let shape = (value.len(), 1);
-        let value = value.into_shape(shape).unwrap();
-        let index = tape.push_constant(value);
-        Var::vector(tape, index, shape.into())
     }
 
     /// Sets the value of the variable.
@@ -510,58 +819,6 @@ impl VectorVar {
     /// Takes the tranpose of this variable.
     pub fn t(&self) -> Self {
         self.unary(UnaryOp::T)
-    }
-
-    /// Takes the sine of this variable.
-    pub fn sin(&self) -> Self {
-        self.unary(UnaryOp::Sin)
-    }
-
-    /// Takes the cosine of this variable.
-    pub fn cos(&self) -> Self {
-        self.unary(UnaryOp::Cos)
-    }
-
-    /// Takes the tangent of this variable.
-    pub fn tan(&self) -> Self {
-        self.unary(UnaryOp::Tan)
-    }
-
-    /// Takes this variable raised to a given constant power.
-    pub fn pow_const(&self, p: f64) -> Self {
-        let const_var = Self::constant(&self.tape, FloatVector::from_elem(self.kind.length, p));
-        self.binary(&const_var, BinaryOp::Pow)
-    }
-
-    /// Takes this variable raised to a given variable power.
-    pub fn pow(&self, other: &Self) -> Self {
-        self.binary(other, BinaryOp::Pow)
-    }
-
-    /// Takes the natural logarithm of this variable.
-    pub fn ln(&self) -> Self {
-        self.unary(UnaryOp::Ln)
-    }
-
-    /// Takes the natural exponential of this variable.
-    pub fn exp(&self) -> Self {
-        self.unary(UnaryOp::Exp)
-    }
-
-    /// Takes the log of this variable with a constant base.
-    pub fn log_const(&self, base: f64) -> Self {
-        let const_var = Self::constant(&self.tape, FloatVector::from_elem(self.kind.length, base));
-        self.binary(&const_var, BinaryOp::Log)
-    }
-
-    /// Takes the log of this variable with a variable base.
-    pub fn log(&self, other: &Self) -> Self {
-        self.binary(other, BinaryOp::Log)
-    }
-
-    /// Takes the squared root of this variable.
-    pub fn sqrt(&self) -> Self {
-        self.pow_const(0.5)
     }
 
     /// Takes the L2 norm of this variable.
@@ -588,70 +845,6 @@ impl DotProduct<MatrixKind> for VectorVar {
 
     fn dot(&self, other: &Var<MatrixKind>) -> Var<Self::KResult> {
         self.binary(other, BinaryOp::Dot)
-    }
-}
-
-impl_op_ex!(+|x: &VectorVar, y: &VectorVar| -> VectorVar { x.binary(y, BinaryOp::Add) });
-impl_op_ex!(+|x: &VectorVar, y: f64| -> VectorVar {
-    let y = FloatVector::from_elem(x.kind.length, y);
-    let y = VectorVar::constant(&x.tape, y);
-    x.binary(&y, BinaryOp::Add)
-});
-impl_op_ex!(+|x: f64, y: &VectorVar| -> VectorVar {
-    let x = FloatVector::from_elem(y.kind.length, x);
-    let x = VectorVar::constant(&y.tape, x);
-    x.binary(y, BinaryOp::Add)
-});
-
-impl_op_ex!(*|x: &VectorVar, y: &VectorVar| -> VectorVar { x.binary(y, BinaryOp::Mul) });
-impl_op_ex!(*|x: &VectorVar, y: f64| -> VectorVar {
-    let y = FloatVector::from_elem(x.kind.length, y);
-    let y = VectorVar::constant(&x.tape, y);
-    x.binary(&y, BinaryOp::Mul)
-});
-impl_op_ex!(*|x: f64, y: &VectorVar| -> VectorVar {
-    let x = FloatVector::from_elem(y.kind.length, x);
-    let x = VectorVar::constant(&y.tape, x);
-    x.binary(y, BinaryOp::Add)
-});
-
-impl_op_ex!(-|x: &VectorVar, y: &VectorVar| -> VectorVar { x.binary(y, BinaryOp::Sub) });
-impl_op_ex!(-|x: &VectorVar, y: f64| -> VectorVar {
-    let y = FloatVector::from_elem(x.kind.length, y);
-    let y = VectorVar::constant(&x.tape, y);
-    x.binary(&y, BinaryOp::Sub)
-});
-impl_op_ex!(-|x: f64, y: &VectorVar| -> VectorVar {
-    let x = FloatVector::from_elem(y.kind.length, x);
-    let x = VectorVar::constant(&y.tape, x);
-    x.binary(y, BinaryOp::Sub)
-});
-
-impl_op_ex!(/|x: &VectorVar, y: &VectorVar| -> VectorVar { x.binary(y, BinaryOp::Div) });
-impl_op_ex!(/|x: &VectorVar, y: f64| -> VectorVar {
-    let y = FloatVector::from_elem(x.kind.length, y);
-    let y = VectorVar::constant(&x.tape, y);
-    x.binary(&y, BinaryOp::Div)
-});
-impl_op_ex!(/|x: f64, y: &VectorVar| -> VectorVar {
-    let x = FloatVector::from_elem(y.kind.length, x);
-    let x = VectorVar::constant(&y.tape, x);
-    x.binary(y, BinaryOp::Div)
-});
-
-impl Neg for VectorVar {
-    type Output = VectorVar;
-
-    fn neg(self) -> Self::Output {
-        self.unary(UnaryOp::Neg)
-    }
-}
-
-impl Neg for &VectorVar {
-    type Output = VectorVar;
-
-    fn neg(self) -> Self::Output {
-        self.unary(UnaryOp::Neg)
     }
 }
 

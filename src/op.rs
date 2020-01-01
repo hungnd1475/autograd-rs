@@ -1,4 +1,4 @@
-use crate::alge::{FloatMatrix, MatrixFunc};
+use crate::alg::{FloatMatrix, MatrixFunc};
 use crate::tape::Node;
 use crate::var::{ScalarKind, Shape};
 

@@ -1,4 +1,4 @@
-mod alge;
+mod alg;
 mod op;
 mod tape;
 mod var;
