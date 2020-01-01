@@ -1,4 +1,6 @@
-use crate::{FloatMatrix, LinearAlgebra, Node, ScalarKind, Shape};
+use crate::alge::{FloatMatrix, MatrixFunc};
+use crate::tape::Node;
+use crate::var::{ScalarKind, Shape};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 /// Represents the supported unary operations.

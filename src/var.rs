@@ -1,10 +1,47 @@
+use crate::alge::{FloatMatrix, FloatVector};
 use crate::op::{BinaryOp, UnaryOp};
-use crate::{FloatMatrix, FloatVector, LinearAlgebra, Node, Shape, Tape};
+use crate::tape::{Node, Tape};
 use auto_ops::impl_op_ex;
 use std::convert::TryFrom;
 use std::fmt;
 use std::ops::Neg;
 use std::rc::Rc;
+
+#[derive(Clone, Copy, Debug)]
+pub struct Shape(pub usize, pub usize);
+
+impl Shape {
+    pub fn dim(&self) -> (usize, usize) {
+        (self.0, self.1)
+    }
+
+    pub fn is_vector(&self) -> bool {
+        let Shape(nrow, ncol) = *self;
+        nrow == 1 || ncol == 1
+    }
+
+    pub fn is_row_vector(&self) -> bool {
+        let Shape(nrow, ncol) = *self;
+        nrow == 1 && ncol != 1
+    }
+
+    pub fn is_col_vector(&self) -> bool {
+        let Shape(nrow, ncol) = *self;
+        nrow != 1 && ncol == 1
+    }
+
+    pub fn is_scalar(&self) -> bool {
+        let Shape(nrow, ncol) = *self;
+        nrow == 1 && ncol == 1
+    }
+}
+
+impl From<(usize, usize)> for Shape {
+    fn from(dim: (usize, usize)) -> Self {
+        let (nrow, ncol) = dim;
+        Shape(nrow, ncol)
+    }
+}
 
 pub struct ShapeError(Shape, &'static str);
 
@@ -358,7 +395,7 @@ impl ScalarVar {
             .iter()
             .map(|x| FloatMatrix::zeros(x.shape().dim()))
             .collect();
-        derivs[self.index] = derivs[self.index].ones_like();
+        derivs[self.index] = FloatMatrix::ones(derivs[self.index].dim());
 
         for &var_index in nodes_order.iter().rev() {
             let node = &nodes[var_index];
