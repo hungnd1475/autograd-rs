@@ -1,6 +1,6 @@
 use crate::alg::{FloatMatrix, MatrixFunc};
 use crate::tape::Node;
-use crate::var::{ScalarKind, Shape};
+use crate::var::{Scalar, Shape};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 /// Represents the supported unary operations.
@@ -19,7 +19,7 @@ impl UnaryOp {
     pub(crate) fn eval_shape(&self, input_shape: Shape) -> Shape {
         match (self, input_shape) {
             (UnaryOp::T, Shape(nrow, ncol)) => Shape(ncol, nrow),
-            (UnaryOp::Sum, _) => ScalarKind::shape(),
+            (UnaryOp::Sum, _) => Scalar::shape(),
             _ => input_shape,
         }
     }

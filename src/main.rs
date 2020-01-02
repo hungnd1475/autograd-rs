@@ -1,10 +1,11 @@
-use autograd_rs::{array, DotProduct, ScalarVar, Tape, VectorVar};
+use autograd_rs::var::{Binary, DotProduct, Scalar, Unary, Var, Vector};
+use autograd_rs::{array, Tape};
 
-fn sigmoid(x: &VectorVar) -> VectorVar {
+fn sigmoid<S>(x: &Var<Vector, S>) -> Var<Vector, Binary> {
     1.0 / (1.0 + (-x).exp())
 }
 
-fn loss(h: &VectorVar, y: &VectorVar) -> ScalarVar {
+fn loss<S1, S2>(h: &Var<Vector, S1>, y: &Var<Vector, S2>) -> Var<Scalar, Unary> {
     (h - y).pow_const(2.0).sum()
 }
 

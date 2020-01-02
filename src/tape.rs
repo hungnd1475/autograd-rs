@@ -1,6 +1,6 @@
 use crate::alg::FloatMatrix;
 use crate::op::{BinaryOp, UnaryOp};
-use crate::var::{MatrixVar, ScalarVar, Shape, Var, VectorVar};
+use crate::var::{Matrix, Nullary, Scalar, Shape, Var, Vector};
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
@@ -130,20 +130,20 @@ pub struct TapeContainer {
 
 impl TapeContainer {
     /// Creates a new scalar free variable.
-    pub fn scalar_var(&self) -> ScalarVar {
+    pub fn scalar_var(&self) -> Var<Scalar, Nullary> {
         let index = self.tape.push_nullary(None, Shape(1, 1));
         Var::scalar(&self.tape, index)
     }
 
     /// Creates a new vector free variable.
-    pub fn vector_var(&self, length: usize) -> VectorVar {
+    pub fn vector_var(&self, length: usize) -> Var<Vector, Nullary> {
         let shape = Shape(length, 1);
         let index = self.tape.push_nullary(None, shape);
         Var::vector(&self.tape, index, shape)
     }
 
     /// Creates a new matrix free variable.
-    pub fn matrix_var(&self, nrow: usize, ncol: usize) -> MatrixVar {
+    pub fn matrix_var(&self, nrow: usize, ncol: usize) -> Var<Matrix, Nullary> {
         let index = self.tape.push_nullary(None, Shape(nrow, ncol));
         Var::matrix(&self.tape, index, nrow, ncol)
     }

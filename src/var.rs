@@ -3,6 +3,7 @@ use crate::op::{BinaryOp, UnaryOp};
 use crate::tape::{Node, Tape};
 use std::convert::TryFrom;
 use std::fmt;
+use std::marker::PhantomData;
 use std::ops::{Add, Div, Mul, Neg, Sub};
 use std::rc::Rc;
 
@@ -55,21 +56,21 @@ pub trait VarKind: Copy + TryFrom<Shape, Error = ShapeError> {
 }
 
 #[derive(Copy, Clone)]
-pub struct ScalarKind;
+pub struct Scalar;
 
-impl ScalarKind {
+impl Scalar {
     pub fn shape() -> Shape {
         Shape(1, 1)
     }
 }
 
-impl VarKind for ScalarKind {
+impl VarKind for Scalar {
     fn shape(&self) -> Shape {
-        ScalarKind::shape()
+        Scalar::shape()
     }
 }
 
-impl TryFrom<Shape> for ScalarKind {
+impl TryFrom<Shape> for Scalar {
     type Error = ShapeError;
 
     fn try_from(value: Shape) -> Result<Self, Self::Error> {
@@ -82,12 +83,12 @@ impl TryFrom<Shape> for ScalarKind {
 }
 
 #[derive(Copy, Clone)]
-pub struct VectorKind {
+pub struct Vector {
     length: usize,
     is_row: bool,
 }
 
-impl VarKind for VectorKind {
+impl VarKind for Vector {
     fn shape(&self) -> Shape {
         if self.is_row {
             Shape(1, self.length)
@@ -97,12 +98,12 @@ impl VarKind for VectorKind {
     }
 }
 
-impl TryFrom<Shape> for VectorKind {
+impl TryFrom<Shape> for Vector {
     type Error = ShapeError;
 
     fn try_from(value: Shape) -> Result<Self, Self::Error> {
         if value.is_vector() {
-            Ok(VectorKind {
+            Ok(Vector {
                 length: value.0 * value.1,
                 is_row: value.is_row_vector(),
             })
@@ -113,38 +114,44 @@ impl TryFrom<Shape> for VectorKind {
 }
 
 #[derive(Copy, Clone)]
-pub struct MatrixKind {
+pub struct Matrix {
     nrow: usize,
     ncol: usize,
 }
 
-impl VarKind for MatrixKind {
+impl VarKind for Matrix {
     fn shape(&self) -> Shape {
         Shape(self.nrow, self.ncol)
     }
 }
 
-impl TryFrom<Shape> for MatrixKind {
+impl TryFrom<Shape> for Matrix {
     type Error = ShapeError;
 
     fn try_from(value: Shape) -> Result<Self, Self::Error> {
-        Ok(MatrixKind {
+        Ok(Matrix {
             nrow: value.0,
             ncol: value.1,
         })
     }
 }
 
-pub struct Var<K>
+pub struct Nullary;
+pub struct Constant;
+pub struct Unary;
+pub struct Binary;
+
+pub struct Var<K, S>
 where
     K: VarKind,
 {
     tape: Rc<Tape>,
     index: usize,
     kind: K,
+    _source: PhantomData<S>,
 }
 
-impl<K> Var<K>
+impl<K, S> Var<K, S>
 where
     K: VarKind,
 {
@@ -154,17 +161,18 @@ where
             tape: Rc::clone(tape),
             index,
             kind,
+            _source: PhantomData::default(),
         }
     }
 
-    fn constant_like(&self, value: f64) -> Var<K> {
+    fn constant_like(&self, value: f64) -> Var<K, Constant> {
         let value = FloatMatrix::from_elem(self.kind.shape().dim(), value);
         let index = self.tape.push_constant(value);
         Var::new(&self.tape, index, self.kind)
     }
 
     /// Creates a new variable resulting from an unary operation applied on this variable.
-    fn unary<KResult>(&self, op: UnaryOp) -> Var<KResult>
+    fn unary<KResult>(&self, op: UnaryOp) -> Var<KResult, Unary>
     where
         KResult: VarKind,
     {
@@ -174,7 +182,11 @@ where
     }
 
     /// Creates a new variable resulting from a binary operation applied on this variable and another.
-    fn binary<KOther, KResult>(&self, other: &Var<KOther>, op: BinaryOp) -> Var<KResult>
+    fn binary<KOther, SOther, KResult>(
+        &self,
+        other: &Var<KOther, SOther>,
+        op: BinaryOp,
+    ) -> Var<KResult, Binary>
     where
         KOther: VarKind,
         KResult: VarKind,
@@ -186,424 +198,424 @@ where
     }
 
     /// Takes the sine of this variable.
-    pub fn sin(&self) -> Self {
+    pub fn sin(&self) -> Var<K, Unary> {
         self.unary(UnaryOp::Sin)
     }
 
     /// Takes the cosine of this variable.
-    pub fn cos(&self) -> Self {
+    pub fn cos(&self) -> Var<K, Unary> {
         self.unary(UnaryOp::Cos)
     }
 
     /// Takes the tangent of this variable.
-    pub fn tan(&self) -> Self {
+    pub fn tan(&self) -> Var<K, Unary> {
         self.unary(UnaryOp::Tan)
     }
 
     /// Takes this variable raised to a given constant power.
-    pub fn pow_const(&self, p: f64) -> Self {
+    pub fn pow_const(&self, p: f64) -> Var<K, Binary> {
         self.binary(&self.constant_like(p), BinaryOp::Pow)
     }
 
     /// Takes this variable raised to a given variable power.
-    pub fn pow(&self, other: &Self) -> Self {
+    pub fn pow(&self, other: &Self) -> Var<K, Binary> {
         self.binary(other, BinaryOp::Pow)
     }
 
     /// Takes the natural logarithm of this variable.
-    pub fn ln(&self) -> Self {
+    pub fn ln(&self) -> Var<K, Unary> {
         self.unary(UnaryOp::Ln)
     }
 
     /// Takes the natural exponential of this variable.
-    pub fn exp(&self) -> Self {
+    pub fn exp(&self) -> Var<K, Unary> {
         self.unary(UnaryOp::Exp)
     }
 
     /// Takes the log of this variable with a constant base.
-    pub fn log_const(&self, base: f64) -> Self {
+    pub fn log_const(&self, base: f64) -> Var<K, Binary> {
         self.binary(&self.constant_like(base), BinaryOp::Log)
     }
 
     /// Takes the log of this variable with a variable base.
-    pub fn log(&self, other: &Self) -> Self {
+    pub fn log(&self, other: &Self) -> Var<K, Binary> {
         self.binary(other, BinaryOp::Log)
     }
 
     /// Takes the squared root of this variable.
-    pub fn sqrt(&self) -> Self {
+    pub fn sqrt(&self) -> Var<K, Binary> {
         self.pow_const(0.5)
     }
 }
 
-impl<K> Add<Var<K>> for Var<K>
+impl<K, SL, SR> Add<Var<K, SR>> for Var<K, SL>
 where
     K: VarKind,
 {
-    type Output = Var<K>;
+    type Output = Var<K, Binary>;
 
-    fn add(self, other: Var<K>) -> Self::Output {
+    fn add(self, other: Var<K, SR>) -> Self::Output {
         self.binary(&other, BinaryOp::Add)
     }
 }
 
-impl<K> Add<&Var<K>> for Var<K>
+impl<K, SL, SR> Add<&Var<K, SR>> for Var<K, SL>
 where
     K: VarKind,
 {
-    type Output = Var<K>;
+    type Output = Var<K, Binary>;
 
-    fn add(self, other: &Var<K>) -> Self::Output {
+    fn add(self, other: &Var<K, SR>) -> Self::Output {
         self.binary(other, BinaryOp::Add)
     }
 }
 
-impl<K> Add<Var<K>> for &Var<K>
+impl<K, SL, SR> Add<Var<K, SR>> for &Var<K, SL>
 where
     K: VarKind,
 {
-    type Output = Var<K>;
+    type Output = Var<K, Binary>;
 
-    fn add(self, other: Var<K>) -> Self::Output {
+    fn add(self, other: Var<K, SR>) -> Self::Output {
         self.binary(&other, BinaryOp::Add)
     }
 }
 
-impl<K> Add<&Var<K>> for &Var<K>
+impl<K, SL, SR> Add<&Var<K, SR>> for &Var<K, SL>
 where
     K: VarKind,
 {
-    type Output = Var<K>;
+    type Output = Var<K, Binary>;
 
-    fn add(self, other: &Var<K>) -> Self::Output {
+    fn add(self, other: &Var<K, SR>) -> Self::Output {
         self.binary(&other, BinaryOp::Add)
     }
 }
 
-impl<K> Add<f64> for Var<K>
+impl<K, S> Add<f64> for Var<K, S>
 where
     K: VarKind,
 {
-    type Output = Var<K>;
+    type Output = Var<K, Binary>;
 
     fn add(self, c: f64) -> Self::Output {
         self.binary(&self.constant_like(c), BinaryOp::Add)
     }
 }
 
-impl<K> Add<f64> for &Var<K>
+impl<K, S> Add<f64> for &Var<K, S>
 where
     K: VarKind,
 {
-    type Output = Var<K>;
+    type Output = Var<K, Binary>;
 
     fn add(self, c: f64) -> Self::Output {
         self.binary(&self.constant_like(c), BinaryOp::Add)
     }
 }
 
-impl<K> Add<Var<K>> for f64
+impl<K, S> Add<Var<K, S>> for f64
 where
     K: VarKind,
 {
-    type Output = Var<K>;
+    type Output = Var<K, Binary>;
 
-    fn add(self, other: Var<K>) -> Self::Output {
+    fn add(self, other: Var<K, S>) -> Self::Output {
         other.constant_like(self).binary(&other, BinaryOp::Add)
     }
 }
 
-impl<K> Add<&Var<K>> for f64
+impl<K, S> Add<&Var<K, S>> for f64
 where
     K: VarKind,
 {
-    type Output = Var<K>;
+    type Output = Var<K, Binary>;
 
-    fn add(self, other: &Var<K>) -> Self::Output {
+    fn add(self, other: &Var<K, S>) -> Self::Output {
         other.constant_like(self).binary(other, BinaryOp::Add)
     }
 }
 
-impl<K> Sub<Var<K>> for Var<K>
+impl<K, SL, SR> Sub<Var<K, SR>> for Var<K, SL>
 where
     K: VarKind,
 {
-    type Output = Var<K>;
+    type Output = Var<K, Binary>;
 
-    fn sub(self, other: Var<K>) -> Self::Output {
+    fn sub(self, other: Var<K, SR>) -> Self::Output {
         self.binary(&other, BinaryOp::Sub)
     }
 }
 
-impl<K> Sub<&Var<K>> for Var<K>
+impl<K, SL, SR> Sub<&Var<K, SR>> for Var<K, SL>
 where
     K: VarKind,
 {
-    type Output = Var<K>;
+    type Output = Var<K, Binary>;
 
-    fn sub(self, other: &Var<K>) -> Self::Output {
+    fn sub(self, other: &Var<K, SR>) -> Self::Output {
         self.binary(other, BinaryOp::Sub)
     }
 }
 
-impl<K> Sub<Var<K>> for &Var<K>
+impl<K, SL, SR> Sub<Var<K, SR>> for &Var<K, SL>
 where
     K: VarKind,
 {
-    type Output = Var<K>;
+    type Output = Var<K, Binary>;
 
-    fn sub(self, other: Var<K>) -> Self::Output {
+    fn sub(self, other: Var<K, SR>) -> Self::Output {
         self.binary(&other, BinaryOp::Sub)
     }
 }
 
-impl<K> Sub<&Var<K>> for &Var<K>
+impl<K, SL, SR> Sub<&Var<K, SR>> for &Var<K, SL>
 where
     K: VarKind,
 {
-    type Output = Var<K>;
+    type Output = Var<K, Binary>;
 
-    fn sub(self, other: &Var<K>) -> Self::Output {
+    fn sub(self, other: &Var<K, SR>) -> Self::Output {
         self.binary(&other, BinaryOp::Sub)
     }
 }
 
-impl<K> Sub<f64> for Var<K>
+impl<K, S> Sub<f64> for Var<K, S>
 where
     K: VarKind,
 {
-    type Output = Var<K>;
+    type Output = Var<K, Binary>;
 
     fn sub(self, c: f64) -> Self::Output {
         self.binary(&self.constant_like(c), BinaryOp::Sub)
     }
 }
 
-impl<K> Sub<f64> for &Var<K>
+impl<K, S> Sub<f64> for &Var<K, S>
 where
     K: VarKind,
 {
-    type Output = Var<K>;
+    type Output = Var<K, Binary>;
 
     fn sub(self, c: f64) -> Self::Output {
         self.binary(&self.constant_like(c), BinaryOp::Sub)
     }
 }
 
-impl<K> Sub<Var<K>> for f64
+impl<K, S> Sub<Var<K, S>> for f64
 where
     K: VarKind,
 {
-    type Output = Var<K>;
+    type Output = Var<K, Binary>;
 
-    fn sub(self, other: Var<K>) -> Self::Output {
+    fn sub(self, other: Var<K, S>) -> Self::Output {
         other.constant_like(self).binary(&other, BinaryOp::Sub)
     }
 }
 
-impl<K> Sub<&Var<K>> for f64
+impl<K, S> Sub<&Var<K, S>> for f64
 where
     K: VarKind,
 {
-    type Output = Var<K>;
+    type Output = Var<K, Binary>;
 
-    fn sub(self, other: &Var<K>) -> Self::Output {
+    fn sub(self, other: &Var<K, S>) -> Self::Output {
         other.constant_like(self).binary(other, BinaryOp::Sub)
     }
 }
 
-impl<K> Mul<Var<K>> for Var<K>
+impl<K, SL, SR> Mul<Var<K, SR>> for Var<K, SL>
 where
     K: VarKind,
 {
-    type Output = Var<K>;
+    type Output = Var<K, Binary>;
 
-    fn mul(self, other: Var<K>) -> Self::Output {
+    fn mul(self, other: Var<K, SR>) -> Self::Output {
         self.binary(&other, BinaryOp::Mul)
     }
 }
 
-impl<K> Mul<&Var<K>> for Var<K>
+impl<K, SL, SR> Mul<&Var<K, SR>> for Var<K, SL>
 where
     K: VarKind,
 {
-    type Output = Var<K>;
+    type Output = Var<K, Binary>;
 
-    fn mul(self, other: &Var<K>) -> Self::Output {
+    fn mul(self, other: &Var<K, SR>) -> Self::Output {
         self.binary(other, BinaryOp::Mul)
     }
 }
 
-impl<K> Mul<Var<K>> for &Var<K>
+impl<K, SL, SR> Mul<Var<K, SR>> for &Var<K, SL>
 where
     K: VarKind,
 {
-    type Output = Var<K>;
+    type Output = Var<K, Binary>;
 
-    fn mul(self, other: Var<K>) -> Self::Output {
+    fn mul(self, other: Var<K, SR>) -> Self::Output {
         self.binary(&other, BinaryOp::Mul)
     }
 }
 
-impl<K> Mul<&Var<K>> for &Var<K>
+impl<K, SL, SR> Mul<&Var<K, SR>> for &Var<K, SL>
 where
     K: VarKind,
 {
-    type Output = Var<K>;
+    type Output = Var<K, Binary>;
 
-    fn mul(self, other: &Var<K>) -> Self::Output {
+    fn mul(self, other: &Var<K, SR>) -> Self::Output {
         self.binary(&other, BinaryOp::Mul)
     }
 }
 
-impl<K> Mul<f64> for Var<K>
+impl<K, S> Mul<f64> for Var<K, S>
 where
     K: VarKind,
 {
-    type Output = Var<K>;
+    type Output = Var<K, Binary>;
 
     fn mul(self, c: f64) -> Self::Output {
         self.binary(&self.constant_like(c), BinaryOp::Mul)
     }
 }
 
-impl<K> Mul<f64> for &Var<K>
+impl<K, S> Mul<f64> for &Var<K, S>
 where
     K: VarKind,
 {
-    type Output = Var<K>;
+    type Output = Var<K, Binary>;
 
     fn mul(self, c: f64) -> Self::Output {
         self.binary(&self.constant_like(c), BinaryOp::Mul)
     }
 }
 
-impl<K> Mul<Var<K>> for f64
+impl<K, S> Mul<Var<K, S>> for f64
 where
     K: VarKind,
 {
-    type Output = Var<K>;
+    type Output = Var<K, Binary>;
 
-    fn mul(self, other: Var<K>) -> Self::Output {
+    fn mul(self, other: Var<K, S>) -> Self::Output {
         other.constant_like(self).binary(&other, BinaryOp::Mul)
     }
 }
 
-impl<K> Mul<&Var<K>> for f64
+impl<K, S> Mul<&Var<K, S>> for f64
 where
     K: VarKind,
 {
-    type Output = Var<K>;
+    type Output = Var<K, Binary>;
 
-    fn mul(self, other: &Var<K>) -> Self::Output {
+    fn mul(self, other: &Var<K, S>) -> Self::Output {
         other.constant_like(self).binary(other, BinaryOp::Mul)
     }
 }
 
-impl<K> Div<Var<K>> for Var<K>
+impl<K, SL, SR> Div<Var<K, SR>> for Var<K, SL>
 where
     K: VarKind,
 {
-    type Output = Var<K>;
+    type Output = Var<K, Binary>;
 
-    fn div(self, other: Var<K>) -> Self::Output {
+    fn div(self, other: Var<K, SR>) -> Self::Output {
         self.binary(&other, BinaryOp::Div)
     }
 }
 
-impl<K> Div<&Var<K>> for Var<K>
+impl<K, SL, SR> Div<&Var<K, SR>> for Var<K, SL>
 where
     K: VarKind,
 {
-    type Output = Var<K>;
+    type Output = Var<K, Binary>;
 
-    fn div(self, other: &Var<K>) -> Self::Output {
+    fn div(self, other: &Var<K, SR>) -> Self::Output {
         self.binary(other, BinaryOp::Div)
     }
 }
 
-impl<K> Div<Var<K>> for &Var<K>
+impl<K, SL, SR> Div<Var<K, SR>> for &Var<K, SL>
 where
     K: VarKind,
 {
-    type Output = Var<K>;
+    type Output = Var<K, Binary>;
 
-    fn div(self, other: Var<K>) -> Self::Output {
+    fn div(self, other: Var<K, SR>) -> Self::Output {
         self.binary(&other, BinaryOp::Div)
     }
 }
 
-impl<K> Div<&Var<K>> for &Var<K>
+impl<K, SL, SR> Div<&Var<K, SR>> for &Var<K, SL>
 where
     K: VarKind,
 {
-    type Output = Var<K>;
+    type Output = Var<K, Binary>;
 
-    fn div(self, other: &Var<K>) -> Self::Output {
+    fn div(self, other: &Var<K, SR>) -> Self::Output {
         self.binary(&other, BinaryOp::Div)
     }
 }
 
-impl<K> Div<f64> for Var<K>
+impl<K, S> Div<f64> for Var<K, S>
 where
     K: VarKind,
 {
-    type Output = Var<K>;
+    type Output = Var<K, Binary>;
 
     fn div(self, c: f64) -> Self::Output {
         self.binary(&self.constant_like(c), BinaryOp::Div)
     }
 }
 
-impl<K> Div<f64> for &Var<K>
+impl<K, S> Div<f64> for &Var<K, S>
 where
     K: VarKind,
 {
-    type Output = Var<K>;
+    type Output = Var<K, Binary>;
 
     fn div(self, c: f64) -> Self::Output {
         self.binary(&self.constant_like(c), BinaryOp::Div)
     }
 }
 
-impl<K> Div<Var<K>> for f64
+impl<K, S> Div<Var<K, S>> for f64
 where
     K: VarKind,
 {
-    type Output = Var<K>;
+    type Output = Var<K, Binary>;
 
-    fn div(self, other: Var<K>) -> Self::Output {
+    fn div(self, other: Var<K, S>) -> Self::Output {
         other.constant_like(self).binary(&other, BinaryOp::Div)
     }
 }
 
-impl<K> Div<&Var<K>> for f64
+impl<K, S> Div<&Var<K, S>> for f64
 where
     K: VarKind,
 {
-    type Output = Var<K>;
+    type Output = Var<K, Binary>;
 
-    fn div(self, other: &Var<K>) -> Self::Output {
+    fn div(self, other: &Var<K, S>) -> Self::Output {
         other.constant_like(self).binary(other, BinaryOp::Div)
     }
 }
 
-impl<K> Neg for Var<K>
+impl<K, S> Neg for Var<K, S>
 where
     K: VarKind,
 {
-    type Output = Var<K>;
+    type Output = Var<K, Unary>;
 
     fn neg(self) -> Self::Output {
         self.unary(UnaryOp::Neg)
     }
 }
 
-impl<K> Neg for &Var<K>
+impl<K, S> Neg for &Var<K, S>
 where
     K: VarKind,
 {
-    type Output = Var<K>;
+    type Output = Var<K, Unary>;
 
     fn neg(self) -> Self::Output {
         self.unary(UnaryOp::Neg)
@@ -611,28 +623,27 @@ where
 }
 
 /// Represents the dot product operation.
-pub trait DotProduct<KOther>
+pub trait DotProduct<K, S>
 where
-    KOther: VarKind,
+    K: VarKind,
 {
     type KResult: VarKind;
-    fn dot(&self, other: &Var<KOther>) -> Var<Self::KResult>;
+    fn dot(&self, other: &Var<K, S>) -> Var<Self::KResult, Binary>;
 }
 
-pub type ScalarVar = Var<ScalarKind>;
-pub type VectorVar = Var<VectorKind>;
-pub type MatrixVar = Var<MatrixKind>;
-
-impl ScalarVar {
+impl<S> Var<Scalar, S> {
     /// Initializes a new scalar variable.
     pub(crate) fn scalar(tape: &Rc<Tape>, index: usize) -> Self {
         Self {
             tape: Rc::clone(tape),
             index,
-            kind: ScalarKind,
+            kind: Scalar,
+            _source: PhantomData::default(),
         }
     }
+}
 
+impl Var<Scalar, Nullary> {
     /// Sets the value for this variable.
     pub fn set(&mut self, new_value: f64) {
         let mut nodes = self.tape.nodes.borrow_mut();
@@ -640,7 +651,7 @@ impl ScalarVar {
             Node::Nullary { ref mut value, .. } => {
                 *value = Some(FloatMatrix::from_elem(self.kind.shape().dim(), new_value));
             }
-            _ => panic!("Cannot set value for non-input variable."),
+            _ => panic!("Cannot set value for dependent variable."),
         }
         self.tape.is_evaluated.set(false);
     }
@@ -651,7 +662,7 @@ pub struct Grad {
 }
 
 impl Grad {
-    pub fn wrt<K>(&self, var: &Var<K>) -> &FloatMatrix
+    pub fn wrt<K, S>(&self, var: &Var<K, S>) -> &FloatMatrix
     where
         K: VarKind,
     {
@@ -659,7 +670,7 @@ impl Grad {
     }
 }
 
-impl ScalarVar {
+impl<S> Var<Scalar, S> {
     /// Sorts the expression graph in togological order starting from this variable.
     fn topological_sort(&self) -> Vec<usize> {
         let nodes = self.tape.nodes.borrow();
@@ -795,16 +806,34 @@ impl ScalarVar {
     }
 }
 
-impl VectorVar {
+impl<S> Var<Vector, S> {
     /// Initializes a new vector variable.
     pub(crate) fn vector(tape: &Rc<Tape>, index: usize, shape: Shape) -> Self {
         Self {
             tape: Rc::clone(tape),
             index,
-            kind: VectorKind::try_from(shape).unwrap(),
+            kind: Vector::try_from(shape).unwrap(),
+            _source: PhantomData::default(),
         }
     }
 
+    /// Takes the tranpose of this variable.
+    pub fn t(&self) -> Var<Vector, Unary> {
+        self.unary(UnaryOp::T)
+    }
+
+    /// Takes the L2 norm of this variable.
+    pub fn l2norm(&self) -> Var<Scalar, Binary> {
+        self.t().dot(self).sqrt()
+    }
+
+    /// Takes the sum of this variable's elements.
+    pub fn sum(&self) -> Var<Scalar, Unary> {
+        self.unary(UnaryOp::Sum)
+    }
+}
+
+impl Var<Vector, Nullary> {
     /// Sets the value of the variable.
     pub fn set(&mut self, new_value: FloatVector) {
         let new_value = new_value.into_shape(self.kind.shape().dim()).unwrap();
@@ -815,54 +844,42 @@ impl VectorVar {
         }
         self.tape.is_evaluated.set(false);
     }
-
-    /// Takes the tranpose of this variable.
-    pub fn t(&self) -> Self {
-        self.unary(UnaryOp::T)
-    }
-
-    /// Takes the L2 norm of this variable.
-    pub fn l2norm(&self) -> ScalarVar {
-        self.t().dot(self).sqrt()
-    }
-
-    /// Takes the sum of this variable's elements.
-    pub fn sum(&self) -> ScalarVar {
-        self.unary(UnaryOp::Sum)
-    }
 }
 
-impl DotProduct<VectorKind> for VectorVar {
-    type KResult = ScalarKind;
+impl<SL, SR> DotProduct<Vector, SR> for Var<Vector, SL> {
+    type KResult = Scalar;
 
-    fn dot(&self, other: &Var<VectorKind>) -> Var<Self::KResult> {
+    fn dot(&self, other: &Var<Vector, SR>) -> Var<Self::KResult, Binary> {
         self.binary(other, BinaryOp::Dot)
     }
 }
 
-impl DotProduct<MatrixKind> for VectorVar {
-    type KResult = VectorKind;
+impl<SL, SR> DotProduct<Matrix, SR> for Var<Vector, SL> {
+    type KResult = Vector;
 
-    fn dot(&self, other: &Var<MatrixKind>) -> Var<Self::KResult> {
+    fn dot(&self, other: &Var<Matrix, SR>) -> Var<Self::KResult, Binary> {
         self.binary(other, BinaryOp::Dot)
     }
 }
 
-impl MatrixVar {
+impl<S> Var<Matrix, S> {
     /// Initializes a new matrix variable.
     pub(crate) fn matrix(tape: &Rc<Tape>, index: usize, nrow: usize, ncol: usize) -> Self {
         Self {
             tape: Rc::clone(tape),
             index,
-            kind: MatrixKind { nrow, ncol },
+            kind: Matrix { nrow, ncol },
+            _source: PhantomData::default(),
         }
     }
 
     /// Takes the transpose of this variable.
-    pub fn t(&self) -> Self {
+    pub fn t(&self) -> Var<Matrix, Unary> {
         self.unary(UnaryOp::T)
     }
+}
 
+impl Var<Matrix, Nullary> {
     /// Sets the value of the variable.
     pub fn set(&mut self, new_value: FloatMatrix) {
         assert_eq!(
@@ -875,24 +892,24 @@ impl MatrixVar {
         let mut nodes = self.tape.nodes.borrow_mut();
         match &mut nodes[self.index] {
             Node::Nullary { ref mut value, .. } => *value = Some(new_value),
-            _ => panic!("Cannot set value for non-input variable."),
+            _ => panic!("Cannot set value for dependent variable."),
         }
         self.tape.is_evaluated.set(false);
     }
 }
 
-impl DotProduct<VectorKind> for MatrixVar {
-    type KResult = VectorKind;
+impl<SL, SR> DotProduct<Vector, SR> for Var<Matrix, SL> {
+    type KResult = Vector;
 
-    fn dot(&self, other: &Var<VectorKind>) -> Var<Self::KResult> {
+    fn dot(&self, other: &Var<Vector, SR>) -> Var<Self::KResult, Binary> {
         self.binary(other, BinaryOp::Dot)
     }
 }
 
-impl DotProduct<MatrixKind> for MatrixVar {
-    type KResult = MatrixKind;
+impl<SL, SR> DotProduct<Matrix, SR> for Var<Matrix, SL> {
+    type KResult = Matrix;
 
-    fn dot(&self, other: &Var<MatrixKind>) -> Var<Self::KResult> {
+    fn dot(&self, other: &Var<Matrix, SR>) -> Var<Self::KResult, Binary> {
         self.binary(other, BinaryOp::Dot)
     }
 }
