@@ -161,7 +161,7 @@ where
             tape: Rc::clone(tape),
             index,
             kind,
-            _source: PhantomData::default(),
+            _source: PhantomData,
         }
     }
 
@@ -634,12 +634,7 @@ where
 impl<S> Var<Scalar, S> {
     /// Initializes a new scalar variable.
     pub(crate) fn scalar(tape: &Rc<Tape>, index: usize) -> Self {
-        Self {
-            tape: Rc::clone(tape),
-            index,
-            kind: Scalar,
-            _source: PhantomData::default(),
-        }
+        Var::new(tape, index, Scalar)
     }
 }
 
@@ -809,12 +804,7 @@ impl<S> Var<Scalar, S> {
 impl<S> Var<Vector, S> {
     /// Initializes a new vector variable.
     pub(crate) fn vector(tape: &Rc<Tape>, index: usize, shape: Shape) -> Self {
-        Self {
-            tape: Rc::clone(tape),
-            index,
-            kind: Vector::try_from(shape).unwrap(),
-            _source: PhantomData::default(),
-        }
+        Var::new(tape, index, Vector::try_from(shape).unwrap())
     }
 
     /// Takes the tranpose of this variable.
@@ -865,12 +855,7 @@ impl<SL, SR> DotProduct<Matrix, SR> for Var<Vector, SL> {
 impl<S> Var<Matrix, S> {
     /// Initializes a new matrix variable.
     pub(crate) fn matrix(tape: &Rc<Tape>, index: usize, nrow: usize, ncol: usize) -> Self {
-        Self {
-            tape: Rc::clone(tape),
-            index,
-            kind: Matrix { nrow, ncol },
-            _source: PhantomData::default(),
-        }
+        Var::new(tape, index, Matrix { nrow, ncol })
     }
 
     /// Takes the transpose of this variable.
