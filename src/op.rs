@@ -1,6 +1,6 @@
 use crate::alg::{FloatMatrix, MatrixFunc};
 use crate::tape::Node;
-use crate::var::{Scalar, Shape};
+use crate::var::Shape;
 use ndarray::{stack, Axis};
 
 #[derive(Clone, Copy, Debug, PartialEq)]

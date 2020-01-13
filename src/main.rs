@@ -1,7 +1,7 @@
 use autograd_rs::var::{Binary, DotProduct, Scalar, Unary, Var, Vector};
 use autograd_rs::{array, Tape};
 
-fn sigmoid<S>(x: &Var<Vector, S>) -> Var<Vector, Binary> {
+fn _sigmoid<S>(x: &Var<Vector, S>) -> Var<Vector, Binary> {
     1.0 / (1.0 + (-x).exp())
 }
 
