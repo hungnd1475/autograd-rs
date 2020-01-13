@@ -5,13 +5,15 @@ This is an experimental project attempting to implement tape-based automatic dif
 Example, suppose we want to compute the gradients of the MSE loss of a 2-layer artificial neural network with sigmoid activation function with respect to the model parameters:
 
 ```rust
-use autograd_rs::{array, ScalarVar, Tape, VectorVar};
+use autograd_rs::var::{Binary, DotProduct, Scalar, Unary, Var, Vector};
+use autograd_rs::{array, Tape};
 
-fn sigmoid(x: &VectorVar) -> VectorVar {
-    1.0 / (1.0 + (-x).exp())
+fn softmax<S>(x: &Var<Vector, S>) -> Var<Vector, Binary> {
+    let exp_x = x.exp();
+    &exp_x / exp_x.sum()
 }
 
-fn loss(h: &VectorVar, y: &VectorVar) -> ScalarVar {
+fn loss<S1, S2>(h: &Var<Vector, S1>, y: &Var<Vector, S2>) -> Var<Scalar, Unary> {
     (h - y).pow_const(2.0).sum()
 }
 
@@ -22,13 +24,13 @@ fn main() {
     let mut w1 = t.matrix_var(3, 2); // the weights of first layer
     let mut b1 = t.vector_var(3); // the bias of first layer
     let z1 = w1.dot(&x) + &b1; // feed forward
-    let a1 = sigmoid(&z1); // activation
+    let a1 = softmax(&z1); // activation
 
     let mut w2 = t.matrix_var(2, 3); // the weights of second layer
     let mut b2 = t.vector_var(2); // the bias of second layer
     let z2 = w2.dot(&a1) + &b2; // feed forward
 
-    let h = sigmoid(&z2); // activation -> output
+    let h = softmax(&z2); // activation -> output
     let mut y = t.vector_var(2); // the target vector
     let l = loss(&h, &y); // compute the loss
 
@@ -55,19 +57,19 @@ fn main() {
 Output:
 
 ```
-l = [[1.0640323060200898]]
+l = [[0.39630271018754865]]
 dl/dw1 =
- [[0.00028334741133117575, 0.0005666948226623515],
- [0.06495812513327018, 0.12991625026654036],
- [0.000178690494143982, 0.000357380988287964]]
+ [[-0.017104741700976426, -0.03420948340195285],
+ [0.01710461381200916, 0.03420922762401832],
+ [0.00000012788896732084814, 0.0000002557779346416963]]
 dl/db1 =
- [[0.00028334741133117575],
- [0.06495812513327018],
- [0.000178690494143982]]
+ [[-0.017104741700976426],
+ [0.01710461381200916],
+ [0.00000012788896732084814]]
 dl/dw2 =
- [[-0.27385129545037956, -0.24708743904323366, -0.00022627614009696203],
- [0.2944706061285532, 0.2656915966826116, 0.0002433133354991017]]
+ [[-0.4310572775092538, -0.00872542323941184, -0.0000007977151139850206],
+ [0.4310572775092539, 0.00872542323941184, 0.0000007977151139850207]]
 dl/db2 =
- [[-0.2744655076808846],
- [0.29513106474537637]]
+ [[-0.4397834984637796],
+ [0.4397834984637797]]
 ```
