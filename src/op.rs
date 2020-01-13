@@ -1,6 +1,7 @@
 use crate::alg::{FloatMatrix, MatrixFunc};
 use crate::tape::Node;
 use crate::var::{Scalar, Shape};
+use ndarray::{stack, Axis};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 /// Represents the supported unary operations.
@@ -12,14 +13,20 @@ pub(crate) enum UnaryOp {
     Tan,
     Ln,
     Exp,
-    Sum,
+    Sum(usize),
+    Broadcast(Shape),
 }
 
 impl UnaryOp {
     pub(crate) fn eval_shape(&self, input_shape: Shape) -> Shape {
         match (self, input_shape) {
-            (UnaryOp::T, Shape(nrow, ncol)) => Shape(ncol, nrow),
-            (UnaryOp::Sum, _) => Scalar::shape(),
+            (UnaryOp::T, Shape([nrow, ncol])) => Shape([ncol, nrow]),
+            (UnaryOp::Sum(axis), _) => {
+                let Shape(mut shape) = input_shape;
+                shape[*axis] = 1;
+                Shape(shape)
+            }
+            (UnaryOp::Broadcast(shape), _) => *shape,
             _ => input_shape,
         }
     }
@@ -34,7 +41,11 @@ impl UnaryOp {
             UnaryOp::Tan => value.tan(),
             UnaryOp::Ln => value.ln(),
             UnaryOp::Exp => value.exp(),
-            UnaryOp::Sum => FloatMatrix::from_elem((1, 1), value.sum()),
+            UnaryOp::Sum(axis) => {
+                let shape = self.eval_shape(value.dim().into());
+                value.sum_axis(Axis(*axis)).into_shape(shape.dim()).unwrap()
+            }
+            UnaryOp::Broadcast(shape) => value.broadcast(shape.dim()).unwrap().to_owned(),
         }
     }
 
@@ -51,7 +62,15 @@ impl UnaryOp {
                 UnaryOp::Tan => 2.0 * g / ((2.0 * val).cos() + 1.0),
                 UnaryOp::Ln => g / val,
                 UnaryOp::Exp => ans * g,
-                UnaryOp::Sum => FloatMatrix::ones(node.shape().dim()),
+                UnaryOp::Sum(axis) => {
+                    let Shape(shape) = node.shape();
+                    stack(Axis(*axis), &vec![g.view(); shape[*axis]]).unwrap()
+                }
+                UnaryOp::Broadcast(_) => {
+                    let result = g.sum_axis(Axis(0));
+                    let length = result.len();
+                    result.into_shape((1, length)).unwrap()
+                }
             },
         }
     }
@@ -72,7 +91,11 @@ pub(crate) enum BinaryOp {
 impl BinaryOp {
     pub(crate) fn eval_shape(&self, left_shape: Shape, right_shape: Shape) -> Shape {
         match self {
-            BinaryOp::Dot => Shape(left_shape.0, right_shape.1),
+            BinaryOp::Dot => {
+                let Shape([left_row, _]) = left_shape;
+                let Shape([_, right_col]) = right_shape;
+                Shape([left_row, right_col])
+            }
             _ => left_shape,
         }
     }

@@ -5,6 +5,11 @@ fn sigmoid<S>(x: &Var<Vector, S>) -> Var<Vector, Binary> {
     1.0 / (1.0 + (-x).exp())
 }
 
+fn softmax<S>(x: &Var<Vector, S>) -> Var<Vector, Binary> {
+    let exp_x = x.exp();
+    &exp_x / exp_x.sum()
+}
+
 fn loss<S1, S2>(h: &Var<Vector, S1>, y: &Var<Vector, S2>) -> Var<Scalar, Unary> {
     (h - y).pow_const(2.0).sum()
 }
@@ -16,13 +21,13 @@ fn main() {
     let mut w1 = t.matrix_var(3, 2); // the weights of first layer
     let mut b1 = t.vector_var(3); // the bias of first layer
     let z1 = w1.dot(&x) + &b1; // feed forward
-    let a1 = sigmoid(&z1); // activation
+    let a1 = softmax(&z1); // activation
 
     let mut w2 = t.matrix_var(2, 3); // the weights of second layer
     let mut b2 = t.vector_var(2); // the bias of second layer
     let z2 = w2.dot(&a1) + &b2; // feed forward
 
-    let h = sigmoid(&z2); // activation -> output
+    let h = softmax(&z2); // activation -> output
     let mut y = t.vector_var(2); // the target vector
     let l = loss(&h, &y); // compute the loss
 

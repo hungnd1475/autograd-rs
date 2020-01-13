@@ -7,31 +7,32 @@ use std::marker::PhantomData;
 use std::ops::{Add, Div, Mul, Neg, Sub};
 use std::rc::Rc;
 
-#[derive(Clone, Copy, Debug)]
-pub struct Shape(pub usize, pub usize);
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Shape(pub [usize; 2]);
 
 impl Shape {
     pub fn dim(&self) -> (usize, usize) {
-        (self.0, self.1)
+        let Shape(shape) = self;
+        (shape[0], shape[1])
     }
 
     pub fn is_vector(&self) -> bool {
-        let Shape(nrow, ncol) = *self;
+        let (nrow, ncol) = self.dim();
         nrow == 1 || ncol == 1
     }
 
     pub fn is_row_vector(&self) -> bool {
-        let Shape(nrow, ncol) = *self;
+        let (nrow, ncol) = self.dim();
         nrow == 1 && ncol != 1
     }
 
     pub fn is_col_vector(&self) -> bool {
-        let Shape(nrow, ncol) = *self;
+        let (nrow, ncol) = self.dim();
         nrow != 1 && ncol == 1
     }
 
     pub fn is_scalar(&self) -> bool {
-        let Shape(nrow, ncol) = *self;
+        let (nrow, ncol) = self.dim();
         nrow == 1 && ncol == 1
     }
 }
@@ -39,7 +40,7 @@ impl Shape {
 impl From<(usize, usize)> for Shape {
     fn from(dim: (usize, usize)) -> Self {
         let (nrow, ncol) = dim;
-        Shape(nrow, ncol)
+        Shape([nrow, ncol])
     }
 }
 
@@ -60,7 +61,7 @@ pub struct Scalar;
 
 impl Scalar {
     pub fn shape() -> Shape {
-        Shape(1, 1)
+        Shape([1, 1])
     }
 }
 
@@ -91,9 +92,9 @@ pub struct Vector {
 impl VarKind for Vector {
     fn shape(&self) -> Shape {
         if self.is_row {
-            Shape(1, self.length)
+            Shape([1, self.length])
         } else {
-            Shape(self.length, 1)
+            Shape([self.length, 1])
         }
     }
 }
@@ -103,8 +104,9 @@ impl TryFrom<Shape> for Vector {
 
     fn try_from(value: Shape) -> Result<Self, Self::Error> {
         if value.is_vector() {
+            let (nrow, ncol) = value.dim();
             Ok(Vector {
-                length: value.0 * value.1,
+                length: nrow * ncol,
                 is_row: value.is_row_vector(),
             })
         } else {
@@ -121,7 +123,7 @@ pub struct Matrix {
 
 impl VarKind for Matrix {
     fn shape(&self) -> Shape {
-        Shape(self.nrow, self.ncol)
+        Shape([self.nrow, self.ncol])
     }
 }
 
@@ -129,10 +131,8 @@ impl TryFrom<Shape> for Matrix {
     type Error = ShapeError;
 
     fn try_from(value: Shape) -> Result<Self, Self::Error> {
-        Ok(Matrix {
-            nrow: value.0,
-            ncol: value.1,
-        })
+        let (nrow, ncol) = value.dim();
+        Ok(Matrix { nrow, ncol })
     }
 }
 
@@ -248,393 +248,14 @@ where
     }
 }
 
-impl<K, SL, SR> Add<Var<K, SR>> for Var<K, SL>
-where
-    K: VarKind,
-{
-    type Output = Var<K, Binary>;
-
-    fn add(self, other: Var<K, SR>) -> Self::Output {
-        self.binary(&other, BinaryOp::Add)
-    }
-}
-
-impl<K, SL, SR> Add<&Var<K, SR>> for Var<K, SL>
-where
-    K: VarKind,
-{
-    type Output = Var<K, Binary>;
-
-    fn add(self, other: &Var<K, SR>) -> Self::Output {
-        self.binary(other, BinaryOp::Add)
-    }
-}
-
-impl<K, SL, SR> Add<Var<K, SR>> for &Var<K, SL>
-where
-    K: VarKind,
-{
-    type Output = Var<K, Binary>;
-
-    fn add(self, other: Var<K, SR>) -> Self::Output {
-        self.binary(&other, BinaryOp::Add)
-    }
-}
-
-impl<K, SL, SR> Add<&Var<K, SR>> for &Var<K, SL>
-where
-    K: VarKind,
-{
-    type Output = Var<K, Binary>;
-
-    fn add(self, other: &Var<K, SR>) -> Self::Output {
-        self.binary(&other, BinaryOp::Add)
-    }
-}
-
-impl<K, S> Add<f64> for Var<K, S>
-where
-    K: VarKind,
-{
-    type Output = Var<K, Binary>;
-
-    fn add(self, c: f64) -> Self::Output {
-        self.binary(&self.constant_like(c), BinaryOp::Add)
-    }
-}
-
-impl<K, S> Add<f64> for &Var<K, S>
-where
-    K: VarKind,
-{
-    type Output = Var<K, Binary>;
-
-    fn add(self, c: f64) -> Self::Output {
-        self.binary(&self.constant_like(c), BinaryOp::Add)
-    }
-}
-
-impl<K, S> Add<Var<K, S>> for f64
-where
-    K: VarKind,
-{
-    type Output = Var<K, Binary>;
-
-    fn add(self, other: Var<K, S>) -> Self::Output {
-        other.constant_like(self).binary(&other, BinaryOp::Add)
-    }
-}
-
-impl<K, S> Add<&Var<K, S>> for f64
-where
-    K: VarKind,
-{
-    type Output = Var<K, Binary>;
-
-    fn add(self, other: &Var<K, S>) -> Self::Output {
-        other.constant_like(self).binary(other, BinaryOp::Add)
-    }
-}
-
-impl<K, SL, SR> Sub<Var<K, SR>> for Var<K, SL>
-where
-    K: VarKind,
-{
-    type Output = Var<K, Binary>;
-
-    fn sub(self, other: Var<K, SR>) -> Self::Output {
-        self.binary(&other, BinaryOp::Sub)
-    }
-}
-
-impl<K, SL, SR> Sub<&Var<K, SR>> for Var<K, SL>
-where
-    K: VarKind,
-{
-    type Output = Var<K, Binary>;
-
-    fn sub(self, other: &Var<K, SR>) -> Self::Output {
-        self.binary(other, BinaryOp::Sub)
-    }
-}
-
-impl<K, SL, SR> Sub<Var<K, SR>> for &Var<K, SL>
-where
-    K: VarKind,
-{
-    type Output = Var<K, Binary>;
-
-    fn sub(self, other: Var<K, SR>) -> Self::Output {
-        self.binary(&other, BinaryOp::Sub)
-    }
-}
-
-impl<K, SL, SR> Sub<&Var<K, SR>> for &Var<K, SL>
-where
-    K: VarKind,
-{
-    type Output = Var<K, Binary>;
-
-    fn sub(self, other: &Var<K, SR>) -> Self::Output {
-        self.binary(&other, BinaryOp::Sub)
-    }
-}
-
-impl<K, S> Sub<f64> for Var<K, S>
-where
-    K: VarKind,
-{
-    type Output = Var<K, Binary>;
-
-    fn sub(self, c: f64) -> Self::Output {
-        self.binary(&self.constant_like(c), BinaryOp::Sub)
-    }
-}
-
-impl<K, S> Sub<f64> for &Var<K, S>
-where
-    K: VarKind,
-{
-    type Output = Var<K, Binary>;
-
-    fn sub(self, c: f64) -> Self::Output {
-        self.binary(&self.constant_like(c), BinaryOp::Sub)
-    }
-}
-
-impl<K, S> Sub<Var<K, S>> for f64
-where
-    K: VarKind,
-{
-    type Output = Var<K, Binary>;
-
-    fn sub(self, other: Var<K, S>) -> Self::Output {
-        other.constant_like(self).binary(&other, BinaryOp::Sub)
-    }
-}
-
-impl<K, S> Sub<&Var<K, S>> for f64
-where
-    K: VarKind,
-{
-    type Output = Var<K, Binary>;
-
-    fn sub(self, other: &Var<K, S>) -> Self::Output {
-        other.constant_like(self).binary(other, BinaryOp::Sub)
-    }
-}
-
-impl<K, SL, SR> Mul<Var<K, SR>> for Var<K, SL>
-where
-    K: VarKind,
-{
-    type Output = Var<K, Binary>;
-
-    fn mul(self, other: Var<K, SR>) -> Self::Output {
-        self.binary(&other, BinaryOp::Mul)
-    }
-}
-
-impl<K, SL, SR> Mul<&Var<K, SR>> for Var<K, SL>
-where
-    K: VarKind,
-{
-    type Output = Var<K, Binary>;
-
-    fn mul(self, other: &Var<K, SR>) -> Self::Output {
-        self.binary(other, BinaryOp::Mul)
-    }
-}
-
-impl<K, SL, SR> Mul<Var<K, SR>> for &Var<K, SL>
-where
-    K: VarKind,
-{
-    type Output = Var<K, Binary>;
-
-    fn mul(self, other: Var<K, SR>) -> Self::Output {
-        self.binary(&other, BinaryOp::Mul)
-    }
-}
-
-impl<K, SL, SR> Mul<&Var<K, SR>> for &Var<K, SL>
-where
-    K: VarKind,
-{
-    type Output = Var<K, Binary>;
-
-    fn mul(self, other: &Var<K, SR>) -> Self::Output {
-        self.binary(&other, BinaryOp::Mul)
-    }
-}
-
-impl<K, S> Mul<f64> for Var<K, S>
-where
-    K: VarKind,
-{
-    type Output = Var<K, Binary>;
-
-    fn mul(self, c: f64) -> Self::Output {
-        self.binary(&self.constant_like(c), BinaryOp::Mul)
-    }
-}
-
-impl<K, S> Mul<f64> for &Var<K, S>
-where
-    K: VarKind,
-{
-    type Output = Var<K, Binary>;
-
-    fn mul(self, c: f64) -> Self::Output {
-        self.binary(&self.constant_like(c), BinaryOp::Mul)
-    }
-}
-
-impl<K, S> Mul<Var<K, S>> for f64
-where
-    K: VarKind,
-{
-    type Output = Var<K, Binary>;
-
-    fn mul(self, other: Var<K, S>) -> Self::Output {
-        other.constant_like(self).binary(&other, BinaryOp::Mul)
-    }
-}
-
-impl<K, S> Mul<&Var<K, S>> for f64
-where
-    K: VarKind,
-{
-    type Output = Var<K, Binary>;
-
-    fn mul(self, other: &Var<K, S>) -> Self::Output {
-        other.constant_like(self).binary(other, BinaryOp::Mul)
-    }
-}
-
-impl<K, SL, SR> Div<Var<K, SR>> for Var<K, SL>
-where
-    K: VarKind,
-{
-    type Output = Var<K, Binary>;
-
-    fn div(self, other: Var<K, SR>) -> Self::Output {
-        self.binary(&other, BinaryOp::Div)
-    }
-}
-
-impl<K, SL, SR> Div<&Var<K, SR>> for Var<K, SL>
-where
-    K: VarKind,
-{
-    type Output = Var<K, Binary>;
-
-    fn div(self, other: &Var<K, SR>) -> Self::Output {
-        self.binary(other, BinaryOp::Div)
-    }
-}
-
-impl<K, SL, SR> Div<Var<K, SR>> for &Var<K, SL>
-where
-    K: VarKind,
-{
-    type Output = Var<K, Binary>;
-
-    fn div(self, other: Var<K, SR>) -> Self::Output {
-        self.binary(&other, BinaryOp::Div)
-    }
-}
-
-impl<K, SL, SR> Div<&Var<K, SR>> for &Var<K, SL>
-where
-    K: VarKind,
-{
-    type Output = Var<K, Binary>;
-
-    fn div(self, other: &Var<K, SR>) -> Self::Output {
-        self.binary(&other, BinaryOp::Div)
-    }
-}
-
-impl<K, S> Div<f64> for Var<K, S>
-where
-    K: VarKind,
-{
-    type Output = Var<K, Binary>;
-
-    fn div(self, c: f64) -> Self::Output {
-        self.binary(&self.constant_like(c), BinaryOp::Div)
-    }
-}
-
-impl<K, S> Div<f64> for &Var<K, S>
-where
-    K: VarKind,
-{
-    type Output = Var<K, Binary>;
-
-    fn div(self, c: f64) -> Self::Output {
-        self.binary(&self.constant_like(c), BinaryOp::Div)
-    }
-}
-
-impl<K, S> Div<Var<K, S>> for f64
-where
-    K: VarKind,
-{
-    type Output = Var<K, Binary>;
-
-    fn div(self, other: Var<K, S>) -> Self::Output {
-        other.constant_like(self).binary(&other, BinaryOp::Div)
-    }
-}
-
-impl<K, S> Div<&Var<K, S>> for f64
-where
-    K: VarKind,
-{
-    type Output = Var<K, Binary>;
-
-    fn div(self, other: &Var<K, S>) -> Self::Output {
-        other.constant_like(self).binary(other, BinaryOp::Div)
-    }
-}
-
-impl<K, S> Neg for Var<K, S>
-where
-    K: VarKind,
-{
-    type Output = Var<K, Unary>;
-
-    fn neg(self) -> Self::Output {
-        self.unary(UnaryOp::Neg)
-    }
-}
-
-impl<K, S> Neg for &Var<K, S>
-where
-    K: VarKind,
-{
-    type Output = Var<K, Unary>;
-
-    fn neg(self) -> Self::Output {
-        self.unary(UnaryOp::Neg)
-    }
-}
-
-/// Represents the dot product operation.
-pub trait DotProduct<K, S>
-where
-    K: VarKind,
-{
-    type KResult: VarKind;
-    fn dot(&self, other: &Var<K, S>) -> Var<Self::KResult, Binary>;
-}
-
 impl<S> Var<Scalar, S> {
     /// Initializes a new scalar variable.
     pub(crate) fn scalar(tape: &Rc<Tape>, index: usize) -> Self {
         Var::new(tape, index, Scalar)
+    }
+
+    pub fn broadcast(&self, shape: Shape) -> Var<Vector, Unary> {
+        self.unary(UnaryOp::Broadcast(shape))
     }
 }
 
@@ -819,7 +440,13 @@ impl<S> Var<Vector, S> {
 
     /// Takes the sum of this variable's elements.
     pub fn sum(&self) -> Var<Scalar, Unary> {
-        self.unary(UnaryOp::Sum)
+        let shape = self.kind.shape();
+        let axis = if shape.is_col_vector() { 0 } else { 1 };
+        self.unary(UnaryOp::Sum(axis))
+    }
+
+    pub fn broadcast(&self, shape: Shape) -> Var<Matrix, Unary> {
+        self.unary(UnaryOp::Broadcast(shape))
     }
 }
 
@@ -836,22 +463,6 @@ impl Var<Vector, Nullary> {
     }
 }
 
-impl<SL, SR> DotProduct<Vector, SR> for Var<Vector, SL> {
-    type KResult = Scalar;
-
-    fn dot(&self, other: &Var<Vector, SR>) -> Var<Self::KResult, Binary> {
-        self.binary(other, BinaryOp::Dot)
-    }
-}
-
-impl<SL, SR> DotProduct<Matrix, SR> for Var<Vector, SL> {
-    type KResult = Vector;
-
-    fn dot(&self, other: &Var<Matrix, SR>) -> Var<Self::KResult, Binary> {
-        self.binary(other, BinaryOp::Dot)
-    }
-}
-
 impl<S> Var<Matrix, S> {
     /// Initializes a new matrix variable.
     pub(crate) fn matrix(tape: &Rc<Tape>, index: usize, nrow: usize, ncol: usize) -> Self {
@@ -861,6 +472,11 @@ impl<S> Var<Matrix, S> {
     /// Takes the transpose of this variable.
     pub fn t(&self) -> Var<Matrix, Unary> {
         self.unary(UnaryOp::T)
+    }
+
+    /// Takes the sum of this variable.
+    pub fn sum(&self, axis: usize) -> Var<Vector, Unary> {
+        self.unary(UnaryOp::Sum(axis))
     }
 }
 
@@ -880,6 +496,661 @@ impl Var<Matrix, Nullary> {
             _ => panic!("Cannot set value for dependent variable."),
         }
         self.tape.is_evaluated.set(false);
+    }
+}
+
+impl<K, SL, SR> Add<Var<K, SR>> for Var<K, SL>
+where
+    K: VarKind,
+{
+    type Output = Var<K, Binary>;
+
+    fn add(self, other: Var<K, SR>) -> Self::Output {
+        self.binary(&other, BinaryOp::Add)
+    }
+}
+
+impl<K, SL, SR> Add<&Var<K, SR>> for Var<K, SL>
+where
+    K: VarKind,
+{
+    type Output = Var<K, Binary>;
+
+    fn add(self, other: &Var<K, SR>) -> Self::Output {
+        self.binary(other, BinaryOp::Add)
+    }
+}
+
+impl<K, SL, SR> Add<Var<K, SR>> for &Var<K, SL>
+where
+    K: VarKind,
+{
+    type Output = Var<K, Binary>;
+
+    fn add(self, other: Var<K, SR>) -> Self::Output {
+        self.binary(&other, BinaryOp::Add)
+    }
+}
+
+impl<K, SL, SR> Add<&Var<K, SR>> for &Var<K, SL>
+where
+    K: VarKind,
+{
+    type Output = Var<K, Binary>;
+
+    fn add(self, other: &Var<K, SR>) -> Self::Output {
+        self.binary(&other, BinaryOp::Add)
+    }
+}
+
+impl<K, S> Add<f64> for Var<K, S>
+where
+    K: VarKind,
+{
+    type Output = Var<K, Binary>;
+
+    fn add(self, c: f64) -> Self::Output {
+        self.binary(&self.constant_like(c), BinaryOp::Add)
+    }
+}
+
+impl<K, S> Add<f64> for &Var<K, S>
+where
+    K: VarKind,
+{
+    type Output = Var<K, Binary>;
+
+    fn add(self, c: f64) -> Self::Output {
+        self.binary(&self.constant_like(c), BinaryOp::Add)
+    }
+}
+
+impl<K, S> Add<Var<K, S>> for f64
+where
+    K: VarKind,
+{
+    type Output = Var<K, Binary>;
+
+    fn add(self, other: Var<K, S>) -> Self::Output {
+        other.constant_like(self).binary(&other, BinaryOp::Add)
+    }
+}
+
+impl<K, S> Add<&Var<K, S>> for f64
+where
+    K: VarKind,
+{
+    type Output = Var<K, Binary>;
+
+    fn add(self, other: &Var<K, S>) -> Self::Output {
+        other.constant_like(self).binary(other, BinaryOp::Add)
+    }
+}
+
+impl<SL, SR> Add<&Var<Scalar, SR>> for &Var<Vector, SL> {
+    type Output = Var<Vector, Binary>;
+
+    fn add(self, other: &Var<Scalar, SR>) -> Self::Output {
+        self.binary(&other.broadcast(self.kind.shape()), BinaryOp::Add)
+    }
+}
+
+impl<SL, SR> Add<Var<Scalar, SR>> for &Var<Vector, SL> {
+    type Output = Var<Vector, Binary>;
+
+    fn add(self, other: Var<Scalar, SR>) -> Self::Output {
+        self.binary(&other.broadcast(self.kind.shape()), BinaryOp::Add)
+    }
+}
+
+impl<SL, SR> Add<&Var<Scalar, SR>> for Var<Vector, SL> {
+    type Output = Var<Vector, Binary>;
+
+    fn add(self, other: &Var<Scalar, SR>) -> Self::Output {
+        self.binary(&other.broadcast(self.kind.shape()), BinaryOp::Add)
+    }
+}
+
+impl<SL, SR> Add<Var<Scalar, SR>> for Var<Vector, SL> {
+    type Output = Var<Vector, Binary>;
+
+    fn add(self, other: Var<Scalar, SR>) -> Self::Output {
+        self.binary(&other.broadcast(self.kind.shape()), BinaryOp::Add)
+    }
+}
+
+impl<SL, SR> Add<&Var<Vector, SR>> for &Var<Matrix, SL> {
+    type Output = Var<Matrix, Binary>;
+
+    fn add(self, other: &Var<Vector, SR>) -> Self::Output {
+        self.binary(&other.broadcast(self.kind.shape()), BinaryOp::Add)
+    }
+}
+
+impl<SL, SR> Add<Var<Vector, SR>> for &Var<Matrix, SL> {
+    type Output = Var<Matrix, Binary>;
+
+    fn add(self, other: Var<Vector, SR>) -> Self::Output {
+        self.binary(&other.broadcast(self.kind.shape()), BinaryOp::Add)
+    }
+}
+
+impl<SL, SR> Add<&Var<Vector, SR>> for Var<Matrix, SL> {
+    type Output = Var<Matrix, Binary>;
+
+    fn add(self, other: &Var<Vector, SR>) -> Self::Output {
+        self.binary(&other.broadcast(self.kind.shape()), BinaryOp::Add)
+    }
+}
+
+impl<SL, SR> Add<Var<Vector, SR>> for Var<Matrix, SL> {
+    type Output = Var<Matrix, Binary>;
+
+    fn add(self, other: Var<Vector, SR>) -> Self::Output {
+        self.binary(&other.broadcast(self.kind.shape()), BinaryOp::Add)
+    }
+}
+
+impl<K, SL, SR> Sub<Var<K, SR>> for Var<K, SL>
+where
+    K: VarKind,
+{
+    type Output = Var<K, Binary>;
+
+    fn sub(self, other: Var<K, SR>) -> Self::Output {
+        self.binary(&other, BinaryOp::Sub)
+    }
+}
+
+impl<K, SL, SR> Sub<&Var<K, SR>> for Var<K, SL>
+where
+    K: VarKind,
+{
+    type Output = Var<K, Binary>;
+
+    fn sub(self, other: &Var<K, SR>) -> Self::Output {
+        self.binary(other, BinaryOp::Sub)
+    }
+}
+
+impl<K, SL, SR> Sub<Var<K, SR>> for &Var<K, SL>
+where
+    K: VarKind,
+{
+    type Output = Var<K, Binary>;
+
+    fn sub(self, other: Var<K, SR>) -> Self::Output {
+        self.binary(&other, BinaryOp::Sub)
+    }
+}
+
+impl<K, SL, SR> Sub<&Var<K, SR>> for &Var<K, SL>
+where
+    K: VarKind,
+{
+    type Output = Var<K, Binary>;
+
+    fn sub(self, other: &Var<K, SR>) -> Self::Output {
+        self.binary(&other, BinaryOp::Sub)
+    }
+}
+
+impl<K, S> Sub<f64> for Var<K, S>
+where
+    K: VarKind,
+{
+    type Output = Var<K, Binary>;
+
+    fn sub(self, c: f64) -> Self::Output {
+        self.binary(&self.constant_like(c), BinaryOp::Sub)
+    }
+}
+
+impl<K, S> Sub<f64> for &Var<K, S>
+where
+    K: VarKind,
+{
+    type Output = Var<K, Binary>;
+
+    fn sub(self, c: f64) -> Self::Output {
+        self.binary(&self.constant_like(c), BinaryOp::Sub)
+    }
+}
+
+impl<K, S> Sub<Var<K, S>> for f64
+where
+    K: VarKind,
+{
+    type Output = Var<K, Binary>;
+
+    fn sub(self, other: Var<K, S>) -> Self::Output {
+        other.constant_like(self).binary(&other, BinaryOp::Sub)
+    }
+}
+
+impl<K, S> Sub<&Var<K, S>> for f64
+where
+    K: VarKind,
+{
+    type Output = Var<K, Binary>;
+
+    fn sub(self, other: &Var<K, S>) -> Self::Output {
+        other.constant_like(self).binary(other, BinaryOp::Sub)
+    }
+}
+
+impl<SL, SR> Sub<&Var<Scalar, SR>> for &Var<Vector, SL> {
+    type Output = Var<Vector, Binary>;
+
+    fn sub(self, other: &Var<Scalar, SR>) -> Self::Output {
+        self.binary(&other.broadcast(self.kind.shape()), BinaryOp::Sub)
+    }
+}
+
+impl<SL, SR> Sub<Var<Scalar, SR>> for &Var<Vector, SL> {
+    type Output = Var<Vector, Binary>;
+
+    fn sub(self, other: Var<Scalar, SR>) -> Self::Output {
+        self.binary(&other.broadcast(self.kind.shape()), BinaryOp::Sub)
+    }
+}
+
+impl<SL, SR> Sub<&Var<Scalar, SR>> for Var<Vector, SL> {
+    type Output = Var<Vector, Binary>;
+
+    fn sub(self, other: &Var<Scalar, SR>) -> Self::Output {
+        self.binary(&other.broadcast(self.kind.shape()), BinaryOp::Sub)
+    }
+}
+
+impl<SL, SR> Sub<Var<Scalar, SR>> for Var<Vector, SL> {
+    type Output = Var<Vector, Binary>;
+
+    fn sub(self, other: Var<Scalar, SR>) -> Self::Output {
+        self.binary(&other.broadcast(self.kind.shape()), BinaryOp::Sub)
+    }
+}
+
+impl<SL, SR> Sub<&Var<Vector, SR>> for &Var<Matrix, SL> {
+    type Output = Var<Matrix, Binary>;
+
+    fn sub(self, other: &Var<Vector, SR>) -> Self::Output {
+        self.binary(&other.broadcast(self.kind.shape()), BinaryOp::Sub)
+    }
+}
+
+impl<SL, SR> Sub<Var<Vector, SR>> for &Var<Matrix, SL> {
+    type Output = Var<Matrix, Binary>;
+
+    fn sub(self, other: Var<Vector, SR>) -> Self::Output {
+        self.binary(&other.broadcast(self.kind.shape()), BinaryOp::Sub)
+    }
+}
+
+impl<SL, SR> Sub<&Var<Vector, SR>> for Var<Matrix, SL> {
+    type Output = Var<Matrix, Binary>;
+
+    fn sub(self, other: &Var<Vector, SR>) -> Self::Output {
+        self.binary(&other.broadcast(self.kind.shape()), BinaryOp::Sub)
+    }
+}
+
+impl<SL, SR> Sub<Var<Vector, SR>> for Var<Matrix, SL> {
+    type Output = Var<Matrix, Binary>;
+
+    fn sub(self, other: Var<Vector, SR>) -> Self::Output {
+        self.binary(&other.broadcast(self.kind.shape()), BinaryOp::Sub)
+    }
+}
+
+impl<K, SL, SR> Mul<Var<K, SR>> for Var<K, SL>
+where
+    K: VarKind,
+{
+    type Output = Var<K, Binary>;
+
+    fn mul(self, other: Var<K, SR>) -> Self::Output {
+        self.binary(&other, BinaryOp::Mul)
+    }
+}
+
+impl<K, SL, SR> Mul<&Var<K, SR>> for Var<K, SL>
+where
+    K: VarKind,
+{
+    type Output = Var<K, Binary>;
+
+    fn mul(self, other: &Var<K, SR>) -> Self::Output {
+        self.binary(other, BinaryOp::Mul)
+    }
+}
+
+impl<K, SL, SR> Mul<Var<K, SR>> for &Var<K, SL>
+where
+    K: VarKind,
+{
+    type Output = Var<K, Binary>;
+
+    fn mul(self, other: Var<K, SR>) -> Self::Output {
+        self.binary(&other, BinaryOp::Mul)
+    }
+}
+
+impl<K, SL, SR> Mul<&Var<K, SR>> for &Var<K, SL>
+where
+    K: VarKind,
+{
+    type Output = Var<K, Binary>;
+
+    fn mul(self, other: &Var<K, SR>) -> Self::Output {
+        self.binary(&other, BinaryOp::Mul)
+    }
+}
+
+impl<K, S> Mul<f64> for Var<K, S>
+where
+    K: VarKind,
+{
+    type Output = Var<K, Binary>;
+
+    fn mul(self, c: f64) -> Self::Output {
+        self.binary(&self.constant_like(c), BinaryOp::Mul)
+    }
+}
+
+impl<K, S> Mul<f64> for &Var<K, S>
+where
+    K: VarKind,
+{
+    type Output = Var<K, Binary>;
+
+    fn mul(self, c: f64) -> Self::Output {
+        self.binary(&self.constant_like(c), BinaryOp::Mul)
+    }
+}
+
+impl<K, S> Mul<Var<K, S>> for f64
+where
+    K: VarKind,
+{
+    type Output = Var<K, Binary>;
+
+    fn mul(self, other: Var<K, S>) -> Self::Output {
+        other.constant_like(self).binary(&other, BinaryOp::Mul)
+    }
+}
+
+impl<K, S> Mul<&Var<K, S>> for f64
+where
+    K: VarKind,
+{
+    type Output = Var<K, Binary>;
+
+    fn mul(self, other: &Var<K, S>) -> Self::Output {
+        other.constant_like(self).binary(other, BinaryOp::Mul)
+    }
+}
+
+impl<SL, SR> Mul<&Var<Scalar, SR>> for &Var<Vector, SL> {
+    type Output = Var<Vector, Binary>;
+
+    fn mul(self, other: &Var<Scalar, SR>) -> Self::Output {
+        self.binary(&other.broadcast(self.kind.shape()), BinaryOp::Mul)
+    }
+}
+
+impl<SL, SR> Mul<Var<Scalar, SR>> for &Var<Vector, SL> {
+    type Output = Var<Vector, Binary>;
+
+    fn mul(self, other: Var<Scalar, SR>) -> Self::Output {
+        self.binary(&other.broadcast(self.kind.shape()), BinaryOp::Mul)
+    }
+}
+
+impl<SL, SR> Mul<&Var<Scalar, SR>> for Var<Vector, SL> {
+    type Output = Var<Vector, Binary>;
+
+    fn mul(self, other: &Var<Scalar, SR>) -> Self::Output {
+        self.binary(&other.broadcast(self.kind.shape()), BinaryOp::Mul)
+    }
+}
+
+impl<SL, SR> Mul<Var<Scalar, SR>> for Var<Vector, SL> {
+    type Output = Var<Vector, Binary>;
+
+    fn mul(self, other: Var<Scalar, SR>) -> Self::Output {
+        self.binary(&other.broadcast(self.kind.shape()), BinaryOp::Mul)
+    }
+}
+
+impl<SL, SR> Mul<&Var<Vector, SR>> for &Var<Matrix, SL> {
+    type Output = Var<Matrix, Binary>;
+
+    fn mul(self, other: &Var<Vector, SR>) -> Self::Output {
+        self.binary(&other.broadcast(self.kind.shape()), BinaryOp::Mul)
+    }
+}
+
+impl<SL, SR> Mul<Var<Vector, SR>> for &Var<Matrix, SL> {
+    type Output = Var<Matrix, Binary>;
+
+    fn mul(self, other: Var<Vector, SR>) -> Self::Output {
+        self.binary(&other.broadcast(self.kind.shape()), BinaryOp::Mul)
+    }
+}
+
+impl<SL, SR> Mul<&Var<Vector, SR>> for Var<Matrix, SL> {
+    type Output = Var<Matrix, Binary>;
+
+    fn mul(self, other: &Var<Vector, SR>) -> Self::Output {
+        self.binary(&other.broadcast(self.kind.shape()), BinaryOp::Mul)
+    }
+}
+
+impl<SL, SR> Mul<Var<Vector, SR>> for Var<Matrix, SL> {
+    type Output = Var<Matrix, Binary>;
+
+    fn mul(self, other: Var<Vector, SR>) -> Self::Output {
+        self.binary(&other.broadcast(self.kind.shape()), BinaryOp::Mul)
+    }
+}
+
+impl<K, SL, SR> Div<Var<K, SR>> for Var<K, SL>
+where
+    K: VarKind,
+{
+    type Output = Var<K, Binary>;
+
+    fn div(self, other: Var<K, SR>) -> Self::Output {
+        self.binary(&other, BinaryOp::Div)
+    }
+}
+
+impl<K, SL, SR> Div<&Var<K, SR>> for Var<K, SL>
+where
+    K: VarKind,
+{
+    type Output = Var<K, Binary>;
+
+    fn div(self, other: &Var<K, SR>) -> Self::Output {
+        self.binary(other, BinaryOp::Div)
+    }
+}
+
+impl<K, SL, SR> Div<Var<K, SR>> for &Var<K, SL>
+where
+    K: VarKind,
+{
+    type Output = Var<K, Binary>;
+
+    fn div(self, other: Var<K, SR>) -> Self::Output {
+        self.binary(&other, BinaryOp::Div)
+    }
+}
+
+impl<K, SL, SR> Div<&Var<K, SR>> for &Var<K, SL>
+where
+    K: VarKind,
+{
+    type Output = Var<K, Binary>;
+
+    fn div(self, other: &Var<K, SR>) -> Self::Output {
+        self.binary(&other, BinaryOp::Div)
+    }
+}
+
+impl<K, S> Div<f64> for Var<K, S>
+where
+    K: VarKind,
+{
+    type Output = Var<K, Binary>;
+
+    fn div(self, c: f64) -> Self::Output {
+        self.binary(&self.constant_like(c), BinaryOp::Div)
+    }
+}
+
+impl<K, S> Div<f64> for &Var<K, S>
+where
+    K: VarKind,
+{
+    type Output = Var<K, Binary>;
+
+    fn div(self, c: f64) -> Self::Output {
+        self.binary(&self.constant_like(c), BinaryOp::Div)
+    }
+}
+
+impl<K, S> Div<Var<K, S>> for f64
+where
+    K: VarKind,
+{
+    type Output = Var<K, Binary>;
+
+    fn div(self, other: Var<K, S>) -> Self::Output {
+        other.constant_like(self).binary(&other, BinaryOp::Div)
+    }
+}
+
+impl<K, S> Div<&Var<K, S>> for f64
+where
+    K: VarKind,
+{
+    type Output = Var<K, Binary>;
+
+    fn div(self, other: &Var<K, S>) -> Self::Output {
+        other.constant_like(self).binary(other, BinaryOp::Div)
+    }
+}
+
+impl<SL, SR> Div<&Var<Scalar, SR>> for &Var<Vector, SL> {
+    type Output = Var<Vector, Binary>;
+
+    fn div(self, other: &Var<Scalar, SR>) -> Self::Output {
+        self.binary(&other.broadcast(self.kind.shape()), BinaryOp::Div)
+    }
+}
+
+impl<SL, SR> Div<Var<Scalar, SR>> for &Var<Vector, SL> {
+    type Output = Var<Vector, Binary>;
+
+    fn div(self, other: Var<Scalar, SR>) -> Self::Output {
+        self.binary(&other.broadcast(self.kind.shape()), BinaryOp::Div)
+    }
+}
+
+impl<SL, SR> Div<&Var<Scalar, SR>> for Var<Vector, SL> {
+    type Output = Var<Vector, Binary>;
+
+    fn div(self, other: &Var<Scalar, SR>) -> Self::Output {
+        self.binary(&other.broadcast(self.kind.shape()), BinaryOp::Div)
+    }
+}
+
+impl<SL, SR> Div<Var<Scalar, SR>> for Var<Vector, SL> {
+    type Output = Var<Vector, Binary>;
+
+    fn div(self, other: Var<Scalar, SR>) -> Self::Output {
+        self.binary(&other.broadcast(self.kind.shape()), BinaryOp::Div)
+    }
+}
+
+impl<SL, SR> Div<&Var<Vector, SR>> for &Var<Matrix, SL> {
+    type Output = Var<Matrix, Binary>;
+
+    fn div(self, other: &Var<Vector, SR>) -> Self::Output {
+        self.binary(&other.broadcast(self.kind.shape()), BinaryOp::Div)
+    }
+}
+
+impl<SL, SR> Div<Var<Vector, SR>> for &Var<Matrix, SL> {
+    type Output = Var<Matrix, Binary>;
+
+    fn div(self, other: Var<Vector, SR>) -> Self::Output {
+        self.binary(&other.broadcast(self.kind.shape()), BinaryOp::Div)
+    }
+}
+
+impl<SL, SR> Div<&Var<Vector, SR>> for Var<Matrix, SL> {
+    type Output = Var<Matrix, Binary>;
+
+    fn div(self, other: &Var<Vector, SR>) -> Self::Output {
+        self.binary(&other.broadcast(self.kind.shape()), BinaryOp::Div)
+    }
+}
+
+impl<SL, SR> Div<Var<Vector, SR>> for Var<Matrix, SL> {
+    type Output = Var<Matrix, Binary>;
+
+    fn div(self, other: Var<Vector, SR>) -> Self::Output {
+        self.binary(&other.broadcast(self.kind.shape()), BinaryOp::Div)
+    }
+}
+
+impl<K, S> Neg for Var<K, S>
+where
+    K: VarKind,
+{
+    type Output = Var<K, Unary>;
+
+    fn neg(self) -> Self::Output {
+        self.unary(UnaryOp::Neg)
+    }
+}
+
+impl<K, S> Neg for &Var<K, S>
+where
+    K: VarKind,
+{
+    type Output = Var<K, Unary>;
+
+    fn neg(self) -> Self::Output {
+        self.unary(UnaryOp::Neg)
+    }
+}
+
+/// Represents the dot product operation.
+pub trait DotProduct<K, S>
+where
+    K: VarKind,
+{
+    type KResult: VarKind;
+    fn dot(&self, other: &Var<K, S>) -> Var<Self::KResult, Binary>;
+}
+
+impl<SL, SR> DotProduct<Vector, SR> for Var<Vector, SL> {
+    type KResult = Scalar;
+
+    fn dot(&self, other: &Var<Vector, SR>) -> Var<Self::KResult, Binary> {
+        self.binary(other, BinaryOp::Dot)
+    }
+}
+
+impl<SL, SR> DotProduct<Matrix, SR> for Var<Vector, SL> {
+    type KResult = Vector;
+
+    fn dot(&self, other: &Var<Matrix, SR>) -> Var<Self::KResult, Binary> {
+        self.binary(other, BinaryOp::Dot)
     }
 }
 
