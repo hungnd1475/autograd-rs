@@ -1,6 +1,6 @@
 use crate::alg::{FloatMatrix, FloatVector};
 use crate::op::{BinaryOp, UnaryOp};
-use crate::tape::{Node, Tape};
+use crate::tape::{Grad, Tape};
 use std::convert::TryFrom;
 use std::fmt;
 use std::marker::PhantomData;
@@ -146,7 +146,7 @@ where
     K: VarKind,
 {
     tape: Rc<Tape>,
-    index: usize,
+    pub(crate) index: usize,
     kind: K,
     _source: PhantomData<S>,
 }
@@ -195,6 +195,11 @@ where
         let shape = op.eval_shape(self.kind.shape(), other.kind.shape());
         let index = self.tape.push_binary(shape, self.index, other.index, op);
         Var::new(&self.tape, index, KResult::try_from(shape).unwrap())
+    }
+
+    /// Takes the tranpose of this variable.
+    pub fn t(&self) -> Var<K, Unary> {
+        self.unary(UnaryOp::T)
     }
 
     /// Takes the sine of this variable.
@@ -254,171 +259,30 @@ impl<S> Var<Scalar, S> {
         Var::new(tape, index, Scalar)
     }
 
+    /// Broadcasts this scalar to a vector of the given shape.
     pub fn broadcast(&self, shape: Shape) -> Var<Vector, Unary> {
+        assert!(shape.is_vector(), "Broadcasting shape must be a vector.");
         self.unary(UnaryOp::Broadcast(shape))
     }
 }
 
 impl Var<Scalar, Nullary> {
     /// Sets the value for this variable.
-    pub fn set(&mut self, new_value: f64) {
-        let mut nodes = self.tape.nodes.borrow_mut();
-        match &mut nodes[self.index] {
-            Node::Nullary { ref mut value, .. } => {
-                *value = Some(FloatMatrix::from_elem(self.kind.shape().dim(), new_value));
-            }
-            _ => panic!("Cannot set value for dependent variable."),
-        }
-        self.tape.is_evaluated.set(false);
-    }
-}
-
-pub struct Grad {
-    derivs: Vec<FloatMatrix>,
-}
-
-impl Grad {
-    pub fn wrt<K, S>(&self, var: &Var<K, S>) -> &FloatMatrix
-    where
-        K: VarKind,
-    {
-        &self.derivs[var.index]
+    pub fn set(&mut self, value: f64) {
+        let value = FloatMatrix::from_elem(self.kind.shape().dim(), value);
+        self.tape.set_value(self.index, value);
     }
 }
 
 impl<S> Var<Scalar, S> {
-    /// Sorts the expression graph in togological order starting from this variable.
-    fn topological_sort(&self) -> Vec<usize> {
-        let nodes = self.tape.nodes.borrow();
-        let mut visited = vec![false; nodes.len()]; // flag visited nodes
-        let mut visit_stack = Vec::with_capacity(nodes.len()); // used to store the visited nodes
-        let mut nodes_stack = Vec::with_capacity(nodes.len()); // used to store the traversal result
-        let mut root = Some(self.index);
-
-        loop {
-            while let Some(root_index) = root {
-                let root_node = &nodes[root_index];
-                match root_node {
-                    Node::Constant(_) => {
-                        visit_stack.push(root_index);
-                        root = None;
-                    }
-                    Node::Nullary { .. } => {
-                        visit_stack.push(root_index);
-                        root = None;
-                    }
-                    Node::Unary { dep, .. } => {
-                        visit_stack.push(root_index);
-                        root = Some(*dep);
-                    }
-                    Node::Binary { deps, .. } => {
-                        visit_stack.push(deps[1]);
-                        visit_stack.push(root_index);
-                        root = Some(deps[0]);
-                    }
-                }
-            }
-
-            if let Some(root_index) = visit_stack.pop() {
-                let root_node = &nodes[root_index];
-                let mut right_index = None;
-                match root_node {
-                    Node::Binary { deps, .. } => {
-                        if let Some(top_index) = visit_stack.last() {
-                            if *top_index == deps[1] {
-                                right_index = Some(deps[1]);
-                            }
-                        }
-                    }
-                    _ => {}
-                }
-                if let Some(right_index) = right_index {
-                    visit_stack.pop();
-                    visit_stack.push(root_index);
-                    root = Some(right_index);
-                } else {
-                    if !visited[root_index] {
-                        nodes_stack.push(root_index);
-                        visited[root_index] = true;
-                    }
-                }
-            }
-
-            if visit_stack.is_empty() {
-                break;
-            }
-        }
-
-        nodes_stack
-    }
-
     /// Evaluates the variable and those that it depends on.
     pub fn eval(&self) -> FloatMatrix {
-        let nodes_order = self.topological_sort();
-        let mut nodes = self.tape.nodes.borrow_mut();
-
-        // applying the operators on the traversal results from left to right
-        for &var_index in &nodes_order {
-            let result = {
-                let node = &nodes[var_index];
-                match node {
-                    Node::Constant(_) | Node::Nullary { .. } => None,
-                    Node::Unary { dep, op, .. } => Some(op.eval(nodes[*dep].value())),
-                    Node::Binary { deps, op, .. } => {
-                        Some(op.eval(nodes[deps[0]].value(), nodes[deps[1]].value()))
-                    }
-                }
-            };
-            if let Some(result) = result {
-                let node = &mut nodes[var_index];
-                match node {
-                    Node::Constant(_) | Node::Nullary { .. } => {}
-                    Node::Unary { ref mut value, .. } => *value = Some(result),
-                    Node::Binary { ref mut value, .. } => *value = Some(result),
-                }
-            }
-        }
-
-        self.tape.is_evaluated.set(true);
-        nodes[self.index].value().clone()
+        self.tape.eval(self.index)
     }
 
     /// Computes the gradients of the variable with respects to all of its parameters.
     pub fn grad(&self) -> Grad {
-        if !self.tape.is_evaluated.get() {
-            panic!("Graph has not been evaluated.");
-        }
-
-        let nodes_order = self.topological_sort();
-        let nodes = self.tape.nodes.borrow();
-        let mut derivs: Vec<FloatMatrix> = nodes
-            .iter()
-            .map(|x| FloatMatrix::zeros(x.shape().dim()))
-            .collect();
-        derivs[self.index] = FloatMatrix::ones(derivs[self.index].dim());
-
-        for &var_index in nodes_order.iter().rev() {
-            let node = &nodes[var_index];
-            match node {
-                Node::Constant(_) | Node::Nullary { .. } => {}
-                Node::Unary { dep, op, .. } => {
-                    let grad = op.grad(&nodes[*dep], node.value(), &derivs[var_index]);
-                    derivs[*dep] = &derivs[*dep] + &grad;
-                }
-                Node::Binary { deps, op, .. } => {
-                    let grads = op.grad(
-                        &nodes[deps[0]],
-                        &nodes[deps[1]],
-                        node.value(),
-                        &derivs[var_index],
-                    );
-                    derivs[deps[0]] = &derivs[deps[0]] + &grads[0];
-                    derivs[deps[1]] = &derivs[deps[1]] + &grads[1];
-                }
-            }
-        }
-
-        Grad { derivs }
+        self.tape.grad(self.index)
     }
 }
 
@@ -426,11 +290,6 @@ impl<S> Var<Vector, S> {
     /// Initializes a new vector variable.
     pub(crate) fn vector(tape: &Rc<Tape>, index: usize, shape: Shape) -> Self {
         Var::new(tape, index, Vector::try_from(shape).unwrap())
-    }
-
-    /// Takes the tranpose of this variable.
-    pub fn t(&self) -> Var<Vector, Unary> {
-        self.unary(UnaryOp::T)
     }
 
     /// Takes the L2 norm of this variable.
@@ -445,6 +304,7 @@ impl<S> Var<Vector, S> {
         self.unary(UnaryOp::Sum(axis))
     }
 
+    /// Broadcasts this vector to a matrix of the given shape.
     pub fn broadcast(&self, shape: Shape) -> Var<Matrix, Unary> {
         self.unary(UnaryOp::Broadcast(shape))
     }
@@ -452,14 +312,9 @@ impl<S> Var<Vector, S> {
 
 impl Var<Vector, Nullary> {
     /// Sets the value of the variable.
-    pub fn set(&mut self, new_value: FloatVector) {
-        let new_value = new_value.into_shape(self.kind.shape().dim()).unwrap();
-        let mut nodes = self.tape.nodes.borrow_mut();
-        match &mut nodes[self.index] {
-            Node::Nullary { ref mut value, .. } => *value = Some(new_value),
-            _ => panic!("Cannot set value for dependent variable."),
-        }
-        self.tape.is_evaluated.set(false);
+    pub fn set(&mut self, value: FloatVector) {
+        let value = value.into_shape(self.kind.shape().dim()).unwrap();
+        self.tape.set_value(self.index, value);
     }
 }
 
@@ -467,11 +322,6 @@ impl<S> Var<Matrix, S> {
     /// Initializes a new matrix variable.
     pub(crate) fn matrix(tape: &Rc<Tape>, index: usize, nrow: usize, ncol: usize) -> Self {
         Var::new(tape, index, Matrix { nrow, ncol })
-    }
-
-    /// Takes the transpose of this variable.
-    pub fn t(&self) -> Var<Matrix, Unary> {
-        self.unary(UnaryOp::T)
     }
 
     /// Takes the sum of this variable.
@@ -482,20 +332,15 @@ impl<S> Var<Matrix, S> {
 
 impl Var<Matrix, Nullary> {
     /// Sets the value of the variable.
-    pub fn set(&mut self, new_value: FloatMatrix) {
+    pub fn set(&mut self, value: FloatMatrix) {
         assert_eq!(
-            new_value.dim(),
+            value.dim(),
             self.kind.shape().dim(),
             "The shape of the new value does not match {:?} != {:?}.",
-            new_value.dim(),
+            value.dim(),
             self.kind.shape().dim()
         );
-        let mut nodes = self.tape.nodes.borrow_mut();
-        match &mut nodes[self.index] {
-            Node::Nullary { ref mut value, .. } => *value = Some(new_value),
-            _ => panic!("Cannot set value for dependent variable."),
-        }
-        self.tape.is_evaluated.set(false);
+        self.tape.set_value(self.index, value);
     }
 }
 

@@ -51,16 +51,16 @@ impl UnaryOp {
 
     /// Computes the gradient of the operation with respect to the given parameter.
     pub(crate) fn grad(&self, node: &Node, ans: &FloatMatrix, g: &FloatMatrix) -> FloatMatrix {
-        let val = node.value();
+        let value = node.value();
         match node {
             Node::Constant(value) => value.zeros_like(),
             _ => match self {
                 UnaryOp::T => g.t().to_owned(),
                 UnaryOp::Neg => -g,
-                UnaryOp::Sin => val.cos() * g,
-                UnaryOp::Cos => -val.sin() * g,
-                UnaryOp::Tan => 2.0 * g / ((2.0 * val).cos() + 1.0),
-                UnaryOp::Ln => g / val,
+                UnaryOp::Sin => value.cos() * g,
+                UnaryOp::Cos => -value.sin() * g,
+                UnaryOp::Tan => 2.0 * g / ((2.0 * value).cos() + 1.0),
+                UnaryOp::Ln => g / value,
                 UnaryOp::Exp => ans * g,
                 UnaryOp::Sum(axis) => {
                     let Shape(shape) = node.shape();
