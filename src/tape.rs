@@ -1,6 +1,6 @@
-use crate::alg::FloatMatrix;
 use crate::op::{BinaryOp, UnaryOp};
 use crate::var::{Matrix, Nullary, Scalar, Shape, Var, VarKind, Vector};
+use crate::FloatMatrix;
 use std::cell::RefCell;
 use std::rc::Rc;
 

@@ -1,6 +1,6 @@
-use crate::alg::{FloatMatrix, FloatVector};
 use crate::op::{BinaryOp, UnaryOp};
 use crate::tape::{Grad, Tape};
+use crate::{FloatMatrix, FloatVector};
 use std::convert::TryFrom;
 use std::fmt;
 use std::marker::PhantomData;
@@ -165,14 +165,14 @@ where
         }
     }
 
-    fn constant_like(&self, value: f64) -> Var<K, Constant> {
+    pub(crate) fn constant_like(&self, value: f64) -> Var<K, Constant> {
         let value = FloatMatrix::from_elem(self.kind.shape().dim(), value);
         let index = self.tape.push_constant(value);
         Var::new(&self.tape, index, self.kind)
     }
 
     /// Creates a new variable resulting from an unary operation applied on this variable.
-    fn unary<KResult>(&self, op: UnaryOp) -> Var<KResult, Unary>
+    pub(crate) fn unary<KResult>(&self, op: UnaryOp) -> Var<KResult, Unary>
     where
         KResult: VarKind,
     {
@@ -182,7 +182,7 @@ where
     }
 
     /// Creates a new variable resulting from a binary operation applied on this variable and another.
-    fn binary<KOther, SOther, KResult>(
+    pub(crate) fn binary<KOther, SOther, KResult>(
         &self,
         other: &Var<KOther, SOther>,
         op: BinaryOp,

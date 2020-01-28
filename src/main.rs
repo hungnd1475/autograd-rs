@@ -1,14 +1,6 @@
-use autograd_rs::var::{Binary, DotProduct, Scalar, Unary, Var, Vector};
+use autograd_rs::activate::softmax;
+use autograd_rs::var::{DotProduct, Scalar, Unary, Var, Vector};
 use autograd_rs::{array, Tape};
-
-fn _sigmoid<S>(x: &Var<Vector, S>) -> Var<Vector, Binary> {
-    1.0 / (1.0 + (-x).exp())
-}
-
-fn softmax<S>(x: &Var<Vector, S>) -> Var<Vector, Binary> {
-    let exp_x = x.exp();
-    &exp_x / exp_x.sum()
-}
 
 fn loss<S1, S2>(h: &Var<Vector, S1>, y: &Var<Vector, S2>) -> Var<Scalar, Unary> {
     (h - y).pow_const(2.0).sum()
